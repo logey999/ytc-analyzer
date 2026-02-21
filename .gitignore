@@ -25,3 +25,5 @@ env/
 .DS_Store
 *.csv
 *.html
+gittestenv/
+.claude/

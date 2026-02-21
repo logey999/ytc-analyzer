@@ -206,7 +206,7 @@ def img_tag(b64: str, cls: str = "chart-img") -> str:
 
 def _load_css() -> str:
     """Load CSS from external file."""
-    css_path = os.path.join(os.path.dirname(__file__), "css", "report.css")
+    css_path = os.path.join(os.path.dirname(__file__), "..", "css", "report.css")
     try:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()

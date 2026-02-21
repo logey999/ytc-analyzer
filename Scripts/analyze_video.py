@@ -69,14 +69,15 @@ def main() -> None:
         print(f"\n  Error: {exc}")
         sys.exit(1)
 
-    # Step 3 — Create subfolder and move CSV into it
+    # Step 3 — Create subfolder in Reports and move CSV into it
     video_id   = extract_video_id(url)
-    title_slug = sanitize_dirname(video_info.get("title") or video_id)
-    folder     = f"{video_id}_{title_slug}"
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    reports_dir = os.path.join(project_root, "Reports")
+    folder     = os.path.join(reports_dir, video_id)
     os.makedirs(folder, exist_ok=True)
 
     date_str  = datetime.now().strftime("%Y-%m-%d")
-    final_csv = os.path.join(folder, f"comments_{date_str}.csv")
+    final_csv = os.path.join(folder, f"{video_id}_comments_{date_str}.csv")
     os.replace(csv_path, final_csv)
 
     print(f"[2/5] Subfolder created: {folder}/")
@@ -97,8 +98,8 @@ def main() -> None:
           f"(removed {removed:,} low-value)")
 
     # Step 5 — Generate report
-    report_path = os.path.join(folder, "report.html")
-    print("[5/5] Generating report.html…")
+    report_path = os.path.join(folder, f"{video_id}_report_{date_str}.html")
+    print("[5/5] Generating report…")
     generate_report(video_info, df_sorted, report_path)
 
     print()
