@@ -23,7 +23,8 @@ venv/
 ENV/
 env/
 .DS_Store
-*.csv
-*.html
-gittestenv/
+Reports/*/
+!Reports/.gitkeep
+ytc-env/
+myenv/
 .claude/

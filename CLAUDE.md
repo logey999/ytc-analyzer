@@ -27,16 +27,18 @@ The project follows a **modular three-stage pipeline**:
 
 ### Stage 1: Comment Fetching (`Scripts/get_comments.py`)
 - Uses `yt-dlp` to download video metadata and all comments from a YouTube video
+- Validates URL against allowed YouTube prefixes before calling yt-dlp (raises `ValueError` otherwise)
 - Extracts: video ID, title, channel, views, likes, duration, description
-- Returns video info dict and path to `comments_YYYY-MM-DD.csv`
-- CSV columns: `id`, `author`, `text`, `like_count`, `timestamp`, `parent` (reply tracking)
+- Returns `(video_info dict, DataFrame)` — no file I/O; caller handles persistence
+- DataFrame columns: `id`, `author`, `text`, `like_count`, `timestamp`, `parent` (reply tracking)
 
 ### Stage 2: Orchestration (`Scripts/analyze_video.py`) — Main Entry Point
 - **Master script** that orchestrates the entire workflow
 - Prompts user for YouTube URL
-- Extracts video ID from URL
-- Creates subfolder in `Reports/{video_id}/`
-- Calls `get_comments()` to fetch and save comments CSV
+- Extracts video ID from URL, creates subfolder `Reports/{video_id}/`
+- Checks for an existing Parquet file + `_info.json` sidecar; offers reuse prompt
+- Fresh path: calls `get_comments()`, saves `.parquet` + `_info.json`
+- Reuse path: loads `.parquet` + `_info.json` directly (no network call)
 - Filters low-value comments (empty, <3 chars, no letters)
 - Sorts comments by like count
 - Calls `create_report()` to generate HTML
@@ -44,7 +46,7 @@ The project follows a **modular three-stage pipeline**:
 ### Stage 3: Report Generation (`Scripts/create_report.py`)
 - Takes video info dict and filtered DataFrame
 - Performs sentiment analysis on each comment using VADER (vaderSentiment)
-- Extracts word frequencies with stop-word filtering
+- Extracts word/bigram/trigram frequencies in a single pass via `tokenize_all()`
 - Generates matplotlib charts:
   - Top 10 words (single word frequency)
   - Top 10 bigrams (two-word phrases)
@@ -64,9 +66,15 @@ YouTube URL
     ↓
 extract_video_id() → "t_cmP3hZQzQ"
     ↓
-get_comments(url)
-    ├→ yt-dlp subprocess call
-    └→ saves to Reports/t_cmP3hZQzQ/t_cmP3hZQzQ_comments_YYYY-MM-DD.csv
+_find_latest_parquet() → existing file?
+    ├─ yes → prompt user: reuse or fetch fresh
+    └─ no  → fetch fresh
+    ↓
+get_comments(url) [if fresh]
+    └→ returns (video_info, DataFrame)
+    ↓
+save to Reports/t_cmP3hZQzQ/t_cmP3hZQzQ_comments_YYYY-MM-DD.parquet
+save to Reports/t_cmP3hZQzQ/t_cmP3hZQzQ_info.json
     ↓
 filter_low_value() → removes empty/low-quality comments
     ↓
@@ -80,16 +88,18 @@ All reports are organized in the `Reports/` folder with **strict naming conventi
 
 ```
 Reports/
-└── {video_id}/                                    # video ID only, no title
-    ├── {video_id}_comments_YYYY-MM-DD.csv        # Comments file
-    └── {video_id}_report_YYYY-MM-DD.html         # HTML report
+└── {video_id}/
+    ├── {video_id}_comments_YYYY-MM-DD.parquet   # Comments (Parquet)
+    ├── {video_id}_info.json                     # Video metadata sidecar
+    └── {video_id}_report_YYYY-MM-DD.html        # HTML report
 ```
 
 **Example:**
 ```
 Reports/
 └── t_cmP3hZQzQ/
-    ├── t_cmP3hZQzQ_comments_2026-02-21.csv
+    ├── t_cmP3hZQzQ_comments_2026-02-21.parquet
+    ├── t_cmP3hZQzQ_info.json
     └── t_cmP3hZQzQ_report_2026-02-21.html
 ```
 
@@ -98,6 +108,7 @@ Reports/
 - Files always include `{video_id}_` prefix
 - Type descriptor: `_comments_` or `_report_`
 - Date in `YYYY-MM-DD` format at end
+- Re-running on the same video creates a new date-stamped Parquet alongside existing ones
 
 ## Common Commands
 
@@ -105,7 +116,7 @@ Reports/
 ```bash
 python Scripts/analyze_video.py
 ```
-Prompts for YouTube URL and generates a complete report. Reports are saved to `Reports/{video_id}/`.
+Prompts for YouTube URL. If a Parquet file already exists, offers to reuse it or fetch fresh.
 
 ### Setup & Development
 ```bash
@@ -127,7 +138,7 @@ yt-dlp --version
 
 ### Fetch Comments Only
 ```bash
-python Scripts/get_comments.py "https://youtube.com/watch?v=VIDEO_ID" ./output_dir
+python Scripts/get_comments.py "https://youtube.com/watch?v=VIDEO_ID"
 ```
 
 ## Key Dependencies
@@ -135,16 +146,27 @@ python Scripts/get_comments.py "https://youtube.com/watch?v=VIDEO_ID" ./output_d
 | Package | Purpose |
 |---------|---------|
 | `yt-dlp` | Download YouTube video metadata and comments |
-| `pandas` | CSV manipulation and data filtering |
+| `pandas` | DataFrame manipulation and filtering |
+| `pyarrow` | Parquet file read/write support |
 | `matplotlib` | Generate charts as PNG images |
 | `vaderSentiment` | Sentiment analysis (Positive/Neutral/Negative) |
 
 ## Important Implementation Details
 
+### URL Validation (`get_comments`)
+- Checked against `ALLOWED_PREFIXES` before yt-dlp is called
+- Raises `ValueError` for non-YouTube URLs
+
 ### Video ID Extraction (`extract_video_id`)
 - Handles both `youtu.be/VIDEO_ID` and `youtube.com?v=VIDEO_ID` formats
 - Returns just the ID (e.g., `t_cmP3hZQzQ`)
 - Fallback to `"video"` if extraction fails
+
+### Reuse Prompt (`analyze_video.main`)
+- Looks for `{video_id}_comments_*.parquet` in the video folder
+- Also requires `{video_id}_info.json` to be present
+- If both exist, shows row count and prompts `[1] reuse / [2] fresh`
+- Default (Enter) is reuse; only `"2"` triggers a fresh fetch
 
 ### Comment Filtering (`filter_low_value`)
 - Removes comments with <3 characters
@@ -158,12 +180,17 @@ python Scripts/get_comments.py "https://youtube.com/watch?v=VIDEO_ID" ./output_d
   - **Negative**: compound score ≤ -0.05
   - **Neutral**: otherwise
 
-### Word/Phrase Extraction
+### Word/Phrase Extraction (`tokenize_all`)
+- Single pass over `df["text"]` — builds word, bigram, and trigram lists simultaneously
 - Stop-word filtering (common English words excluded)
 - Minimum word length: 3 characters
 - Tokenization via regex: `[a-z']+`
 - Case-insensitive processing
 - Returns top 10 for words, bigrams, and trigrams
+
+### XSS Prevention
+- All user-generated content rendered in HTML goes through `esc()` (HTML entity escaping)
+- `webpage_url` validated to start with `https://` before being used in an href
 
 ### CSS Styling
 - External CSS file: `css/report.css` (3.4 KB)
@@ -172,15 +199,19 @@ python Scripts/get_comments.py "https://youtube.com/watch?v=VIDEO_ID" ./output_d
 
 ## Recent Changes (2026-02-21)
 
-1. **Report Folder Reorganization**: All reports moved to `Reports/` subfolder
-2. **File Naming Convention**: Implemented strict `{video_id}_<type>_<date>` naming
-3. **Folder Structure**: Video ID only (removed title slugs from folder names)
-4. **Script Updates**: `analyze_video.py` updated to enforce new structure automatically
+1. **Parquet migration**: Comments now saved as `.parquet` instead of `.csv` (requires `pyarrow`)
+2. **Video metadata sidecar**: `_info.json` saved alongside each Parquet file
+3. **Reuse prompt**: Re-running on a previously analysed video offers offline re-analysis
+4. **URL validation**: `get_comments` rejects non-YouTube URLs before calling yt-dlp
+5. **Single-pass tokenization**: `tokenize_all()` replaces the three separate tokenization loops
+6. **Rank index fix**: Comment table ranks now correctly start at 1
+7. **Matplotlib XSS fix**: Top commenters chart uses raw names (no HTML entities)
+8. **webpage_url XSS fix**: href validated to `https://` before rendering
 
 ## Architecture Decisions
 
 - **Single-file reports**: HTML reports are self-contained with embedded base64 images (no external dependencies after generation)
-- **CSV format**: Comments stored as CSV for easy post-processing with pandas/Excel
+- **Parquet format**: Chosen over CSV for typed columns, smaller file size, and faster re-loads
 - **Modular design**: Each stage can theoretically be called independently if needed
 - **Stop-word filtering**: Required for meaningful word frequency analysis (excludes "the", "and", etc.)
 - **VADER sentiment**: Lightweight, no fine-tuning required, works well for social media text

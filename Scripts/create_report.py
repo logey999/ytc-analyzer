@@ -79,23 +79,19 @@ def fig_to_b64(fig) -> str:
 
 # ── Analysis helpers ──────────────────────────────────────────────────────────
 
-def top_words(df: pd.DataFrame, n: int = 10) -> list[tuple[str, int]]:
-    words = []
+def tokenize_all(df: pd.DataFrame, n: int = 10):
+    word_list, bigram_list, trigram_list = [], [], []
     for text in df["text"]:
-        tokens = re.findall(r"[a-z']+", text.lower())
-        words.extend(t for t in tokens if t not in STOP_WORDS and len(t) > 2)
-    return Counter(words).most_common(n)
-
-
-def top_ngrams(df: pd.DataFrame, ng: int = 2, n: int = 10) -> list[tuple[tuple, int]]:
-    ngrams = []
-    for text in df["text"]:
-        tokens = [
-            t for t in re.findall(r"[a-z']+", text.lower())
-            if t not in STOP_WORDS and len(t) > 2
-        ]
-        ngrams.extend(zip(*[tokens[i:] for i in range(ng)]))
-    return Counter(ngrams).most_common(n)
+        tokens = [t for t in re.findall(r"[a-z']+", text.lower())
+                  if t not in STOP_WORDS and len(t) > 2]
+        word_list.extend(tokens)
+        bigram_list.extend(zip(tokens, tokens[1:]))
+        trigram_list.extend(zip(tokens, tokens[1:], tokens[2:]))
+    return (
+        Counter(word_list).most_common(n),
+        Counter(bigram_list).most_common(n),
+        Counter(trigram_list).most_common(n),
+    )
 
 
 def sentiment_label(score: float) -> str:
@@ -187,7 +183,7 @@ def make_top_authors_chart(df: pd.DataFrame, n: int = 10) -> str:
     y = range(len(counts))
     ax.barh(list(y), counts.values, color="#48b0a8")
     ax.set_yticks(list(y))
-    ax.set_yticklabels([esc(a) for a in counts.index], fontsize=10)
+    ax.set_yticklabels(list(counts.index), fontsize=10)
     ax.invert_yaxis()
     ax.set_title(f"Top {n} Most Active Commenters", fontsize=13, pad=10)
     ax.set_xlabel("Comment Count")
@@ -227,9 +223,7 @@ def generate_report(video_info: dict, df: pd.DataFrame, output_path: str) -> Non
     sentiment_counts = Counter(df["sentiment"])
 
     # ── Word / phrase frequencies ────────────────────────────────────────────
-    words   = top_words(df)
-    bigrams = top_ngrams(df, ng=2)
-    trigrams = top_ngrams(df, ng=3)
+    words, bigrams, trigrams = tokenize_all(df)
 
     # ── Charts ───────────────────────────────────────────────────────────────
     word_chart      = make_bar_chart([w for w, _ in words],
@@ -257,13 +251,18 @@ def generate_report(video_info: dict, df: pd.DataFrame, output_path: str) -> Non
     top100 = df.nlargest(100, "like_count")[["author", "like_count", "text"]].reset_index(drop=True)
     comment_rows = "\n".join(
         f"""<tr>
-          <td class="rank">{i + 1}</td>
+          <td class="rank">{rank}</td>
           <td class="col-author">{esc(row.author)}</td>
           <td class="col-likes">{fmt(row.like_count)}</td>
           <td class="col-text">{esc(row.text)}</td>
         </tr>"""
-        for i, row in top100.iterrows()
+        for rank, row in enumerate(top100.itertuples(index=False), start=1)
     )
+
+    # ── webpage_url validation (XSS guard) ───────────────────────────────────
+    webpage_url = video_info.get('webpage_url', '') or ''
+    if not webpage_url.startswith('https://'):
+        webpage_url = ''
 
     # ── Upload date formatting ────────────────────────────────────────────────
     upload_date = str(video_info.get("upload_date", "") or "")
@@ -304,7 +303,7 @@ def generate_report(video_info: dict, df: pd.DataFrame, output_path: str) -> Non
       &nbsp;&bull;&nbsp;
       <strong>Duration:</strong> {seconds_to_hms(video_info.get('duration'))}
       &nbsp;&bull;&nbsp;
-      <a href="{esc(video_info.get('webpage_url', ''))}" target="_blank" rel="noopener">Watch on YouTube &#8599;</a>
+      <a href="{esc(webpage_url)}" target="_blank" rel="noopener">Watch on YouTube &#8599;</a>
     </p>
     <div class="metric-grid">
       <div class="metric"><div class="label">Views</div>

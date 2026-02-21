@@ -8,7 +8,7 @@ A Python toolkit that fetches YouTube video comments and generates a rich HTML a
 .
 ├── Scripts/
 │   ├── analyze_video.py      Master script — run this to analyse a video end-to-end
-│   ├── get_comments.py       Fetches comments via yt-dlp and saves CSV
+│   ├── get_comments.py       Fetches comments via yt-dlp, returns a DataFrame
 │   └── create_report.py      Generates HTML report with charts and analysis
 ├── Reports/                  Output folder for all generated reports
 ├── css/
@@ -22,7 +22,7 @@ A Python toolkit that fetches YouTube video comments and generates a rich HTML a
 | File | Purpose |
 |---|---|
 | `Scripts/analyze_video.py` | **Master script** — run this to analyse a video end-to-end |
-| `Scripts/get_comments.py` | Fetches comments via `yt-dlp` and saves comments CSV file |
+| `Scripts/get_comments.py` | Fetches comments via `yt-dlp`, returns a DataFrame |
 | `Scripts/create_report.py` | Generates the HTML report from comment data and video info |
 
 ## Requirements
@@ -30,7 +30,7 @@ A Python toolkit that fetches YouTube video comments and generates a rich HTML a
 - Python 3.10+
 - Git
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- pandas, matplotlib, vaderSentiment
+- pandas, pyarrow, matplotlib, vaderSentiment
 
 ## Windows Setup & Deployment
 
@@ -88,6 +88,7 @@ pip install -r requirements.txt
 This installs:
 - yt-dlp (for fetching YouTube data)
 - pandas (for data processing)
+- pyarrow (for Parquet file support)
 - matplotlib (for charts)
 - vaderSentiment (for sentiment analysis)
 
@@ -119,18 +120,19 @@ python Scripts/analyze_video.py
 
 The script will prompt you for a YouTube URL and then:
 
-1. Create a subfolder in `Reports/` named after the video ID
-2. Download all comments → `Reports/<video_id>/<video_id>_comments_YYYY-MM-DD.csv`
-3. Filter out low-value comments (empty / non-alphabetic)
-4. Sort by like count
-5. Generate a self-contained `Reports/<video_id>/<video_id>_report_YYYY-MM-DD.html`
+1. Check `Reports/<video_id>/` for an existing Parquet comments file
+2. If found, offer to reuse it or fetch fresh comments from YouTube
+3. Save comments to `Reports/<video_id>/<video_id>_comments_YYYY-MM-DD.parquet`
+4. Filter out low-value comments (empty / non-alphabetic)
+5. Sort by like count
+6. Generate a self-contained `Reports/<video_id>/<video_id>_report_YYYY-MM-DD.html`
 
 Open the HTML file in any web browser to view the full analysis report.
 
 ### Fetch comments only
 
 ```bash
-python Scripts/get_comments.py <youtube_url> [output_dir]
+python Scripts/get_comments.py <youtube_url>
 ```
 
 ## Report Generation
@@ -162,15 +164,17 @@ All reports are saved in the `Reports/` folder:
 ```
 Reports/
 └── <video_id>/
-    ├── <video_id>_comments_YYYY-MM-DD.csv   # raw comment data
-    └── <video_id>_report_YYYY-MM-DD.html    # full analysis report
+    ├── <video_id>_comments_YYYY-MM-DD.parquet   # raw comment data
+    ├── <video_id>_info.json                     # video metadata sidecar
+    └── <video_id>_report_YYYY-MM-DD.html        # full analysis report
 ```
 
 Example:
 ```
 Reports/
 └── t_cmP3hZQzQ/
-    ├── t_cmP3hZQzQ_comments_2026-02-21.csv
+    ├── t_cmP3hZQzQ_comments_2026-02-21.parquet
+    ├── t_cmP3hZQzQ_info.json
     └── t_cmP3hZQzQ_report_2026-02-21.html
 ```
 
@@ -186,7 +190,7 @@ Reports/
 - **Most active commenters** — top 10 by comment count
 - **Top 100 liked comments** — ranked table
 
-## CSV columns
+## Parquet columns
 
 | Column | Description |
 |---|---|
@@ -194,5 +198,6 @@ Reports/
 | `author` | Display name of the commenter |
 | `text` | Full comment text |
 | `like_count` | Number of likes on the comment |
-| `timestamp` | Unix timestamp of the comment |1
+| `timestamp` | Unix timestamp of the comment |
 | `parent` | `root` for top-level comments; reply parent ID otherwise |
+| `datetime` | Parsed UTC datetime (derived from `timestamp`) |

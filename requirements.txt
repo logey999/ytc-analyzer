@@ -1,4 +1,5 @@
 yt-dlp
 pandas
+pyarrow
 matplotlib
 vaderSentiment
