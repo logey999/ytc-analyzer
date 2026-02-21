@@ -1,72 +1,76 @@
 # YouTube Comments Analyzer
 
-A lightweight Python script that extracts YouTube video comments into a CSV file using `yt-dlp`.
+A Python toolkit that fetches YouTube video comments and generates a rich HTML analysis report.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `analyze_video.py` | **Master script** — run this to analyse a video end-to-end |
+| `get_comments.py` | Fetches comments via `yt-dlp` and saves `comments_DATE.csv` |
+| `requirements.txt` | Python dependencies |
 
 ## Requirements
 
-- Python 3.x
+- Python 3.10+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- pandas, matplotlib, vaderSentiment
 
-Install yt-dlp:
+Install all dependencies:
 
 ```bash
-pip install yt-dlp
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-1. Open `youtube_comments.py` and replace `VIDEO_ID` in the URL with the actual YouTube video ID:
-
-```python
-"https://www.youtube.com/watch?v=VIDEO_ID"
-```
-
-2. Run the script:
+### Full analysis (recommended)
 
 ```bash
-python youtube_comments.py
+python analyze_video.py
 ```
 
-3. A `comments.csv` file will be created in the current directory.
+The script will prompt you for a YouTube URL and then:
 
-## Output
+1. Create a subfolder named after the video
+2. Download all comments → `comments_YYYY-MM-DD.csv`
+3. Filter out low-value comments (empty / non-alphabetic)
+4. Sort by like count
+5. Generate a self-contained `report.html`
 
-The CSV file contains the following columns:
+### Fetch comments only
+
+```bash
+python get_comments.py <youtube_url> [output_dir]
+```
+
+## Output structure
+
+```
+<video_id>_<video_title>/
+├── comments_2024-06-01.csv   # raw comment data
+└── report.html               # full analysis report
+```
+
+## Report contents
+
+- **Video info** — title, channel, views, likes, duration, description
+- **Comment statistics** — count, average/median/max likes, sentiment breakdown
+- **Sentiment & activity** — pie chart + comments-over-time line graph
+- **Top 10 words** — most common single words (stop words removed)
+- **Top 10 two-word phrases** — most common bigrams
+- **Top 10 three-word phrases** — most common trigrams
+- **Like count distribution** — histogram of likes per comment
+- **Most active commenters** — top 10 by comment count
+- **Top 100 liked comments** — ranked table
+
+## CSV columns
 
 | Column | Description |
 |---|---|
-| `author` | Display name of the comment author |
-| `text` | Full text of the comment |
+| `id` | Comment ID |
+| `author` | Display name of the commenter |
+| `text` | Full comment text |
 | `like_count` | Number of likes on the comment |
-| `timestamp` | Unix timestamp of when the comment was posted |
-
-## How It Works
-
-1. `yt-dlp` is invoked as a subprocess with `--write-comments` and `--dump-json` flags to fetch video metadata and comments without downloading the video.
-2. The JSON output is parsed to extract the `comments` array.
-3. Each comment's `author`, `text`, `like_count`, and `timestamp` fields are written to `comments.csv` using Python's built-in `csv` module.
-
-## Analysis Ideas
-
-Once you have `comments.csv`, you can perform analyses such as:
-
-- **Sentiment analysis** — classify comments as positive, negative, or neutral using libraries like `TextBlob` or `VADER`.
-- **Top commenters** — find the most active authors by grouping on the `author` column.
-- **Most liked comments** — sort by `like_count` to surface the highest-engagement comments.
-- **Comment frequency over time** — convert `timestamp` to a datetime and plot comment volume over time.
-- **Word cloud** — generate a word cloud from the `text` column to visualize common topics.
-- **Keyword search** — filter rows where `text` contains a specific word or phrase.
-
-## Example (pandas)
-
-```python
-import pandas as pd
-
-df = pd.read_csv("comments.csv")
-
-# Top 10 most liked comments
-print(df.nlargest(10, "like_count")[["author", "like_count", "text"]])
-
-# Comment count per author
-print(df["author"].value_counts().head(10))
-```
+| `timestamp` | Unix timestamp of the comment |
+| `parent` | `root` for top-level comments; reply parent ID otherwise |
