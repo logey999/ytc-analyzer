@@ -55,9 +55,16 @@ saved_store = CommentStore(SAVED_PATH, _store_lock)
 blacklist_store = CommentStore(BLACKLIST_PATH, _store_lock)
 deleted_store = CommentStore(DELETED_PATH, _store_lock)
 
-# Job registry: job_id → {queue, status, report_path, title}
+# Job registry: job_id → {queue, status, report_path, title, filter_settings}
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
+
+# Valid boolean keys that can be forwarded from the frontend to filter_low_value()
+_FILTER_BOOL_KEYS = frozenset({
+    "min_chars", "min_alpha", "min_words",
+    "emoji_only", "url_only", "timestamp_only",
+    "repeat_char", "blacklist_match", "english_only", "dedup",
+})
 
 
 # ── Analysis worker ───────────────────────────────────────────────────────────
@@ -69,6 +76,10 @@ def _send(q: queue.Queue, data: dict) -> None:
 def _run_analysis(url: str, job_id: str) -> None:
     with _jobs_lock:
         q = _jobs[job_id]["queue"]
+        raw_settings = _jobs[job_id].get("filter_settings") or {}
+
+    # Build safe kwargs — only known bool keys, coerce to bool
+    filter_kwargs = {k: bool(v) for k, v in raw_settings.items() if k in _FILTER_BOOL_KEYS}
 
     try:
         video_id = extract_video_id(url)
@@ -98,8 +109,17 @@ def _run_analysis(url: str, job_id: str) -> None:
 
         _send(q, {"msg": f"Saved {len(df_raw):,} comments to disk."})
 
-        # Auto-blacklist low-value comments
-        df_filtered = filter_low_value(df_raw)
+        # Build blacklist text set for fast O(1) matching (may be 10k+ items)
+        blacklist_texts: set = set()
+        if filter_kwargs.get("blacklist_match", True):
+            blacklist_texts = {
+                c.get("text", "").lower().strip()
+                for c in blacklist_store.all()
+                if c.get("text")
+            }
+
+        # Auto-blacklist low-value comments using per-job filter settings
+        df_filtered = filter_low_value(df_raw, blacklist_texts=blacklist_texts, **filter_kwargs)
         df_low = df_raw[~df_raw["id"].isin(df_filtered["id"])]
         report_path = f"{channel_slug}/{slug}"
         if not df_low.empty:
@@ -191,6 +211,7 @@ def api_analyze():
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     force = bool(data.get("force", False))
+    filter_settings = data.get("filter_settings") or {}
 
     if not url:
         return jsonify({"error": "url is required"}), 400
@@ -235,6 +256,7 @@ def api_analyze():
             "status": "running",
             "report_path": None,
             "title": "",
+            "filter_settings": filter_settings,
         }
 
     t = threading.Thread(target=_run_analysis, args=(url, job_id), daemon=True)

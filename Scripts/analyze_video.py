@@ -20,6 +20,52 @@ from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
 
+# ---------------------------------------------------------------------------
+# Optional dependencies — features degrade gracefully if not installed
+# ---------------------------------------------------------------------------
+
+# emoji library: accurate Unicode emoji stripping
+# Fallback: broad regex covering the most common emoji blocks
+try:
+    import emoji as _emoji_mod
+    def _strip_emoji(text: str) -> str:
+        return _emoji_mod.replace_emoji(text, replace="")
+except ImportError:
+    _EMOJI_FALLBACK_RE = re.compile(
+        "[\U0001F300-\U0001FFFF"
+        "\U00002600-\U000027FF"
+        "\U0000FE00-\U0000FE0F]",
+        flags=re.UNICODE,
+    )
+    def _strip_emoji(text: str) -> str:
+        return _EMOJI_FALLBACK_RE.sub("", text)
+
+# langdetect: language identification
+try:
+    from langdetect import detect as _lang_detect
+    _LANGDETECT_AVAILABLE = True
+except ImportError:
+    _lang_detect = None  # type: ignore[assignment]
+    _LANGDETECT_AVAILABLE = False
+
+# rapidfuzz: fast fuzzy string matching for near-duplicate detection
+try:
+    from rapidfuzz import fuzz as _fuzz
+    _RAPIDFUZZ_AVAILABLE = True
+except ImportError:
+    _fuzz = None  # type: ignore[assignment]
+    _RAPIDFUZZ_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Pre-compiled patterns
+# ---------------------------------------------------------------------------
+
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+# Matches bare timestamps like "2:34" or "1:23:45" (entire comment)
+_TIMESTAMP_RE = re.compile(r"^(\d+:)?\d{1,2}:\d{2}$")
+# Five or more identical consecutive characters ("lolololol", "!!!!!")
+_REPEAT_CHAR_RE = re.compile(r"(.)\1{4,}")
+
 from get_comments import get_comments
 from create_report import generate_report
 
@@ -48,22 +94,130 @@ def _channel_slug(channel: str) -> str:
     return _slugify(channel)
 
 
+def _near_dedup_remove_all(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
+    """
+    Find all groups of near-duplicate comments and remove EVERY member of any
+    group with 2+ comments. Uses union-find to correctly cluster transitive matches.
+    O(n²) — fast in practice via rapidfuzz C backend.
+    """
+    from collections import Counter
+    texts = df["text"].tolist()
+    n = len(texts)
+    parent = list(range(n))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(x: int, y: int) -> None:
+        px, py = _find(x), _find(y)
+        if px != py:
+            parent[px] = py
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _fuzz.ratio(texts[i], texts[j]) >= threshold:
+                _union(i, j)
+
+    group_sizes = Counter(_find(i) for i in range(n))
+    keep_mask = [group_sizes[_find(i)] == 1 for i in range(n)]
+    return df.iloc[[i for i, keep in enumerate(keep_mask) if keep]]
+
+
 def filter_low_value(
     df: pd.DataFrame,
+    # ── vectorized string checks (fastest) ───────────────────────────────
     min_chars: bool = True,
     min_alpha: bool = True,
     min_words: bool = True,
+    # ── per-row regex checks ──────────────────────────────────────────────
+    emoji_only: bool = True,
+    url_only: bool = True,
+    timestamp_only: bool = True,
+    repeat_char: bool = True,
+    # ── set-lookup against external store (fast O(n+m)) ──────────────────
+    blacklist_match: bool = True,
+    blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
+    # ── per-row ML inference (slow) ───────────────────────────────────────
+    english_only: bool = True,
+    # ── pairwise comparison (slowest, O(n²)) ─────────────────────────────
+    dedup: bool = True,
+    dedup_threshold: int = 85,
 ) -> pd.DataFrame:
-    """Remove empty, near-empty, and non-alphabetic comments."""
+    """
+    Remove empty, near-empty, and low-value comments.
+    Filters are ordered cheapest → most expensive to minimise rows processed
+    by later stages.
+
+        min_chars        — drop comments shorter than 3 characters
+        min_alpha        — drop comments with fewer than 2 letters
+        min_words        — drop comments with fewer than 3 words
+        emoji_only       — drop comments whose non-emoji content is empty/trivial
+        url_only         — drop comments whose non-URL content is empty/trivial
+        timestamp_only   — drop bare timestamps ("2:34", "1:23:45")
+        repeat_char      — drop comments with 5+ identical consecutive characters
+        blacklist_match  — drop comments matching existing blacklist (requires: blacklist_texts set)
+        english_only     — drop non-English comments (requires: langdetect)
+        dedup            — drop ALL copies of any exact or near-duplicate comment
+        dedup_threshold  — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
+    """
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
+
+    # ── 1. vectorized string length/content checks (O(n), no per-row call) ─
     if min_chars:
         df = df[df["text"].str.len() >= 3]
     if min_alpha:
         df = df[df["text"].str.count(r"[a-zA-Z]") >= 2]
     if min_words:
         df = df[df["text"].str.split().str.len() >= 3]
-    return df
+
+    # ── 2. per-row regex checks ────────────────────────────────────────────
+    if emoji_only:
+        stripped = df["text"].apply(_strip_emoji).str.strip()
+        df = df[stripped.str.len() >= 2]
+
+    if url_only:
+        stripped = df["text"].apply(lambda t: _URL_RE.sub("", t)).str.strip()
+        df = df[stripped.str.len() >= 2]
+
+    if timestamp_only:
+        df = df[~df["text"].apply(lambda t: bool(_TIMESTAMP_RE.fullmatch(t)))]
+
+    if repeat_char:
+        df = df[~df["text"].apply(lambda t: bool(_REPEAT_CHAR_RE.search(t)))]
+
+    # ── 3. set-lookup against blacklist (O(n+m), vectorized isin) ──────────
+    if blacklist_match and blacklist_texts:
+        norm = df["text"].str.lower().str.strip()
+        df = df[~norm.isin(blacklist_texts)]
+
+    # ── 4. per-row language detection (slow — runs after cheap filters) ────
+    if english_only:
+        if _LANGDETECT_AVAILABLE:
+            def _is_english(text: str) -> bool:
+                try:
+                    return _lang_detect(text) == "en"
+                except Exception:
+                    return True  # keep on detection failure
+            df = df[df["text"].apply(_is_english)]
+        else:
+            print("  [warn] english_only requires 'langdetect': pip install langdetect")
+
+    # ── 5. pairwise near-dup removal (O(n²) — must run last) ─────────────
+    if dedup:
+        # Exact duplicates (case-insensitive) — remove ALL copies, keep none
+        norm = df["text"].str.lower().str.strip()
+        df = df[~norm.duplicated(keep=False)]
+        # Near-duplicates via rapidfuzz — remove ALL members of every dup group
+        if _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
+            df = _near_dedup_remove_all(df.reset_index(drop=True), dedup_threshold)
+        elif not _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
+            print("  [warn] near-dup dedup requires 'rapidfuzz': pip install rapidfuzz")
+
+    return df.reset_index(drop=True)
 
 
 def _find_existing_report(reports_dir: str, video_id: str):

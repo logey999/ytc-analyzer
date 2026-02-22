@@ -254,7 +254,7 @@ async function startAnalyze() {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url}),
+      body: JSON.stringify({url, filter_settings: getFilterSettings()}),
     });
     const data = await res.json();
 
@@ -307,7 +307,7 @@ async function fetchFresh(jobKey) {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, force: true}),
+      body: JSON.stringify({url, force: true, filter_settings: getFilterSettings()}),
     });
     const data = await res.json();
     if (data.error) {

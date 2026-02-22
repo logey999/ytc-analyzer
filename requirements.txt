@@ -5,3 +5,6 @@ pyarrow
 matplotlib
 vaderSentiment
 flask
+emoji
+langdetect
+rapidfuzz
