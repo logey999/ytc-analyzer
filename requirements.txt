@@ -3,7 +3,6 @@ python-dotenv
 pandas
 pyarrow
 matplotlib
-vaderSentiment
 flask
 emoji
 langdetect
