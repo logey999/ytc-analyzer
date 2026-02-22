@@ -15,6 +15,7 @@ async function loadReports(newPath = null) {
     const res = await fetch('/api/reports');
     _lastReports = await res.json();
     renderReports(_lastReports, newPath);
+    loadNavCounts();
   } catch (e) {
     document.getElementById('panel-reports').innerHTML =
       '<div class="reports-empty">Failed to load reports.</div>';
@@ -84,7 +85,6 @@ function renderReports(reports, newPath = null) {
 }
 
 function buildReportCardHTML(r, isNew = false) {
-  const filteredOut = r.filtered_out || 0;
   const thumb = r.thumbnail
     ? `<img class="report-card-thumb" src="${escAttr(r.thumbnail)}" alt="" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
     : `<div class="report-card-thumb-placeholder">&#9654;</div>`;
@@ -92,16 +92,19 @@ function buildReportCardHTML(r, isNew = false) {
   const date  = r.date       ? r.date : '—';
   const views = r.view_count ? Number(r.view_count).toLocaleString() + ' views' : '';
 
-  const n  = Number(r.comment_count  || 0).toLocaleString();
-  const fo = Number(r.filtered_out   || 0).toLocaleString();
-  const k  = Number(r.kept_count     || 0).toLocaleString();
+  const classified = (r.saved_count || 0) + (r.blacklist_count || 0) + (r.deleted_count || 0);
+  const unclassified = Math.max(0, (r.comment_count || 0) - classified);
+  const n  = Number(unclassified).toLocaleString();
+  const k  = Number(r.saved_count    || 0).toLocaleString();
   const bl = Number(r.blacklist_count|| 0).toLocaleString();
   const dl = Number(r.deleted_count  || 0).toLocaleString();
   const statsLabel = r.comment_count != null
-    ? `${n} comments · ${fo} filtered - ${k} kept - ${bl} blacklisted · ${dl} deleted`
+    ? `${n} pending · ${k} saved - ${bl} blacklisted · ${dl} deleted`
     : '';
 
   const newClass = isNew ? ' report-card-new' : '';
+  const pathAttr = escAttr(r.path);
+  const titleAttr = escAttr(r.title || r.path);
 
   return `<a class="report-card${newClass}" href="/report?path=${encodeURIComponent(r.path)}">
     ${thumb}
@@ -114,6 +117,9 @@ function buildReportCardHTML(r, isNew = false) {
         ${statsLabel ? `<span>&#183; ${esc(statsLabel)}</span>` : ''}
       </div>
     </div>
+    <button class="report-card-delete-btn" title="Delete report"
+      data-path="${pathAttr}" data-title="${titleAttr}"
+      onclick="openDeleteReportModal(event, this)">&#10005;</button>
     <span class="report-card-arrow">&#8594;</span>
   </a>`;
 }
@@ -177,12 +183,12 @@ function setJobCached(jobKey, title, metaText) {
     <button class="job-cache-btn job-cache-fresh" onclick="fetchFresh('${jobKey}')">Fetch Fresh</button>`;
 }
 
-function setJobDone(jobKey, title, reportPath, filteredOut) {
+function setJobDone(jobKey, title, reportPath) {
   const card = document.getElementById('job-' + jobKey);
   if (!card) return;
 
   const job = _jobs.get(jobKey);
-  if (job) { job.status = 'done'; job.reportPath = reportPath; job.filteredOut = filteredOut || 0; }
+  if (job) { job.status = 'done'; job.reportPath = reportPath; }
 
   // Remove cached buttons from thumb if present, show checkmark
   card.querySelector('.report-card-thumb--job').innerHTML = '<span class="job-done-check">&#10003;</span>';
@@ -192,12 +198,8 @@ function setJobDone(jobKey, title, reportPath, filteredOut) {
 
   if (title) card.querySelector('.report-card-title').textContent = title;
 
-  const filteredLabel = filteredOut > 0
-    ? ` <span class="job-filtered-out">${filteredOut.toLocaleString()} filtered</span>`
-    : '';
-
   const meta = card.querySelector('.report-card-meta');
-  meta.innerHTML = `<span class="job-status-text status-done">Done${filteredLabel}</span>`;
+  meta.innerHTML = `<span class="job-status-text status-done">Done</span>`;
 
   // Make card clickable while the temp card is still visible
   card.style.cursor = 'pointer';
@@ -252,7 +254,7 @@ async function startAnalyze() {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, filters: getFilterSettings()}),
+      body: JSON.stringify({url}),
     });
     const data = await res.json();
 
@@ -285,9 +287,8 @@ async function startAnalyze() {
 function useCached(jobKey) {
   const job = _jobs.get(jobKey);
   if (!job || !job.reportPath) return;
-  job.filteredOut = 0;
   job.status = 'done';
-  setJobDone(jobKey, null, job.reportPath, 0);
+  setJobDone(jobKey, null, job.reportPath);
 }
 
 async function fetchFresh(jobKey) {
@@ -306,7 +307,7 @@ async function fetchFresh(jobKey) {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, force: true, filters: getFilterSettings()}),
+      body: JSON.stringify({url, force: true}),
     });
     const data = await res.json();
     if (data.error) {
@@ -337,7 +338,7 @@ function streamProgress(jobKey, serverId) {
       }
       if (msg.msg) setJobRunning(jobKey, msg.msg);
       if (msg.done) {
-        setJobDone(jobKey, msg.title || null, msg.report_path, msg.filtered_out || 0);
+        setJobDone(jobKey, msg.title || null, msg.report_path);
         es.close();
       }
     } catch (_) {}
@@ -360,9 +361,71 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── Delete report ─────────────────────────────────────────────────────────────
+
+let _deleteReportPath = null;
+
+function openDeleteReportModal(event, btn) {
+  event.preventDefault();
+  event.stopPropagation();
+  _deleteReportPath = btn.dataset.path;
+  document.getElementById('delete-report-title').textContent = btn.dataset.title;
+  document.getElementById('delete-report-modal').classList.add('open');
+}
+
+function closeDeleteReportModal(event) {
+  if (event && event.target !== document.getElementById('delete-report-modal')) return;
+  document.getElementById('delete-report-modal').classList.remove('open');
+  _deleteReportPath = null;
+}
+
+async function confirmDeleteReport(disposition) {
+  if (!_deleteReportPath) return;
+  const path = _deleteReportPath;
+  document.getElementById('delete-report-modal').classList.remove('open');
+  _deleteReportPath = null;
+
+  try {
+    const res = await fetch('/api/report/' + path, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disposition }),
+    });
+    if (!res.ok && res.headers.get('content-type')?.includes('text/html')) {
+      alert(`Delete failed: HTTP ${res.status} — is the server restarted?`);
+      return;
+    }
+    const data = await res.json();
+    if (data.error) {
+      alert('Delete failed: ' + data.error);
+      return;
+    }
+    // Animate the card out, then reload
+    const card = [...document.querySelectorAll('.report-card')].find(el => {
+      const btn = el.querySelector('.report-card-delete-btn');
+      return btn && btn.dataset.path === path;
+    });
+    if (card) {
+      card.classList.add('report-card-exit');
+      card.addEventListener('animationend', () => loadReports(), { once: true });
+    } else {
+      loadReports();
+    }
+    loadNavCounts();
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+}
+
+
 // ── Initialization ─────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   updateSortButtons();
   loadReports();
+});
+
+// Refresh report counts when returning via browser back/forward (bfcache restore)
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) loadReports();
 });

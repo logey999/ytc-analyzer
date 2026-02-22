@@ -1,4 +1,4 @@
-// ── Blacklist page: Discarded comments ──────────────────────────────────────
+// ── Blacklist page ────────────────────────────────────────────────────────────
 
 const COL_DEFS = CONFIG.columns.aggregate;
 
@@ -28,4 +28,32 @@ __tableManagers['main-content'] = blacklistTable;
 // Load on page ready
 document.addEventListener('DOMContentLoaded', () => {
   blacklistTable.load();
+});
+
+// ── Delete All ────────────────────────────────────────────────────────────────
+
+function openDeleteAllModal() {
+  document.getElementById('blacklist-delete-all-modal').classList.add('open');
+}
+
+function closeDeleteAllModal(e) {
+  if (e && e.target !== document.getElementById('blacklist-delete-all-modal')) return;
+  document.getElementById('blacklist-delete-all-modal').classList.remove('open');
+}
+
+async function confirmDeleteAll() {
+  document.getElementById('blacklist-delete-all-modal').classList.remove('open');
+  try {
+    await fetch('/api/blacklist', { method: 'DELETE' });
+    blacklistTable.data = [];
+    blacklistTable.page = 0;
+    blacklistTable.render();
+    loadNavCounts();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('blacklist-delete-all-modal')?.classList.remove('open');
 });

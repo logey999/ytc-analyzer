@@ -620,3 +620,28 @@ footer strong {
     font-size: 1.25rem;
   }
 }
+
+/* ── Page toolbar (above table, outside TableManager container) ─────────── */
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+  justify-content: flex-end;
+}
+
+/* ── Modal action row ────────────────────────────────────────────────────── */
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── Small button variant ────────────────────────────────────────────────── */
+
+.btn-sm {
+  font-size: 0.74rem;
+  padding: 4px 10px;
+}

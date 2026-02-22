@@ -1,8 +1,10 @@
 // ── Module state ───────────────────────────────────────────────────────────────
 
 let _videoInfo = {};
-let _discardedCount = 0;
-let _keptCount = 0;
+let _blacklistedCount = 0;
+let _savedCount = 0;
+let _deletedCount = 0;
+let _pendingCount = 0;
 let _allTable = null;
 
 // ── Helpers (in js/utils.js) ──────────────────────────────────────────────────
@@ -74,13 +76,14 @@ async function loadReport() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-function renderReport({ video_info, comments, phrases, discarded_count, kept_count, deleted_count }) {
+function renderReport({ video_info, comments, phrases, blacklist_count, saved_count, deleted_count }) {
   const vi = video_info || {};
   _videoInfo = vi;
-  _discardedCount = discarded_count || 0;
-  _keptCount = kept_count || 0;
-  const _deletedCount = deleted_count || 0;
+  _blacklistedCount = blacklist_count || 0;
+  _savedCount = saved_count || 0;
+  _deletedCount = deleted_count || 0;
   const allComments = comments || [];
+  _pendingCount = allComments.length;
   const channel = String(vi.channel || '');
 
   document.title = `${vi.title || REPORT_PATH} — ytc-analyzer`;
@@ -107,11 +110,11 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
           <span class="meta-sep">&bull;</span>
           <span>${esc(secondsToHms(vi.duration))}</span>
           <span class="meta-sep">&bull;</span>
-          <span>${fmt(vi.view_count)} views</span>
+          <span id="strip-views">${fmt(vi.view_count)} views</span>
           <span class="meta-sep">&bull;</span>
-          <span>${fmt(vi.like_count)} likes</span>
+          <span id="strip-likes">${fmt(vi.like_count)} likes</span>
           <span class="meta-sep">&bull;</span>
-          <span>${fmt(allComments.length)} comments · ${fmt(vi.filtered_out || 0)} filtered - ${fmt(_keptCount)} kept - ${fmt(_discardedCount)} blacklisted · ${fmt(_deletedCount)} deleted</span>
+          <span id="strip-counts">${fmt(allComments.length)} pending - ${fmt(_savedCount)} saved - ${fmt(_blacklistedCount)} blacklisted · ${fmt(_deletedCount)} deleted</span>
         </div>
       </div>
       <div class="strip-actions">
@@ -166,32 +169,36 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
     actions: [
       {
         label: '+',
-        title: 'Keep',
-        className: 'btn-keep',
+        title: 'Save',
+        className: 'btn-save',
         handler: async (comment, row) => {
           try {
-            await fetch('/api/comment/keep', {
+            await fetch('/api/comment/save', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ comment: _withContext(comment) }),
             });
             animateRowOut(row);
-          } catch (e) { console.error('Failed to keep comment:', e); }
+            _pendingCount = Math.max(0, _pendingCount - 1); _savedCount++;
+            loadNavCounts(); refreshStripCounts();
+          } catch (e) { console.error('Failed to save comment:', e); }
         },
       },
       {
         label: '🚫',
         title: 'Add to Blacklist',
-        className: 'btn-discard',
+        className: 'btn-blacklist',
         handler: async (comment, row, tm) => {
           try {
-            await fetch('/api/comment/discard', {
+            await fetch('/api/comment/blacklist', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ comment: _withContext(comment) }),
             });
             tm.removeRow(comment.id, row);
-          } catch (e) { console.error('Failed to discard comment:', e); }
+            _pendingCount = Math.max(0, _pendingCount - 1); _blacklistedCount++;
+            loadNavCounts(); refreshStripCounts();
+          } catch (e) { console.error('Failed to blacklist comment:', e); }
         },
       },
       {
@@ -206,6 +213,8 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
               body: JSON.stringify({ comment: _withContext(comment) }),
             });
             tm.removeRow(comment.id, row);
+            _pendingCount = Math.max(0, _pendingCount - 1); _deletedCount++;
+            loadNavCounts(); refreshStripCounts();
           } catch (e) { console.error('Failed to delete comment:', e); }
         },
       },
@@ -217,6 +226,15 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
   // Phrases chart
   if (phrases && phrases.length) {
     renderPhrasesChart(phrases);
+  }
+}
+
+// ── Strip count refresh ────────────────────────────────────────────────────────
+
+function refreshStripCounts() {
+  const el = document.getElementById('strip-counts');
+  if (el) {
+    el.textContent = `${fmt(_pendingCount)} pending - ${fmt(_savedCount)} saved - ${fmt(_blacklistedCount)} blacklisted · ${fmt(_deletedCount)} deleted`;
   }
 }
 

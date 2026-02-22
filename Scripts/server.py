@@ -12,6 +12,7 @@ import glob
 import json
 import os
 import queue
+import shutil
 import sys
 import threading
 import uuid
@@ -44,14 +45,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS_DIR = os.path.join(PROJECT_ROOT, "Reports")
 
 # JSON stores for persistence
-DISCARDED_PATH = os.path.join(PROJECT_ROOT, "Reports", "discarded.parquet")
-KEEP_PATH      = os.path.join(PROJECT_ROOT, "Reports", "keep.parquet")
+BLACKLIST_PATH = os.path.join(PROJECT_ROOT, "Reports", "blacklist.parquet")
+SAVED_PATH     = os.path.join(PROJECT_ROOT, "Reports", "saved.parquet")
 DELETED_PATH   = os.path.join(PROJECT_ROOT, "Reports", "deleted.parquet")
 _store_lock = threading.RLock()
 
 # Initialize CommentStore instances
-keep_store = CommentStore(KEEP_PATH, _store_lock)
-blacklist_store = CommentStore(DISCARDED_PATH, _store_lock)
+saved_store = CommentStore(SAVED_PATH, _store_lock)
+blacklist_store = CommentStore(BLACKLIST_PATH, _store_lock)
 deleted_store = CommentStore(DELETED_PATH, _store_lock)
 
 # Job registry: job_id → {queue, status, report_path, title}
@@ -65,7 +66,7 @@ def _send(q: queue.Queue, data: dict) -> None:
     q.put(json.dumps(data, ensure_ascii=False))
 
 
-def _run_analysis(url: str, job_id: str, filters: dict | None = None) -> None:
+def _run_analysis(url: str, job_id: str) -> None:
     with _jobs_lock:
         q = _jobs[job_id]["queue"]
 
@@ -97,21 +98,28 @@ def _run_analysis(url: str, job_id: str, filters: dict | None = None) -> None:
 
         _send(q, {"msg": f"Saved {len(df_raw):,} comments to disk."})
 
-        f = filters or {}
-        df_filtered = filter_low_value(
-            df_raw,
-            min_chars=f.get("min_chars", True),
-            min_alpha=f.get("min_alpha", True),
-            min_words=f.get("min_words", True),
-        )
-        filtered_out = len(df_raw) - len(df_filtered)
+        # Auto-blacklist low-value comments
+        df_filtered = filter_low_value(df_raw)
+        df_low = df_raw[~df_raw["id"].isin(df_filtered["id"])]
+        report_path = f"{channel_slug}/{slug}"
+        if not df_low.empty:
+            df_low["author"] = df_low.get("author", pd.Series(dtype=str)).fillna("").astype(str)
+            df_low["text"]   = df_low.get("text",   pd.Series(dtype=str)).fillna("").astype(str)
+            for _, row in df_low.iterrows():
+                cid = row.get("id")
+                if cid:
+                    blacklist_store.add({
+                        "id": str(cid),
+                        "author": str(row.get("author", "")),
+                        "text": str(row.get("text", "")),
+                        "like_count": int(row.get("like_count", 0)),
+                        "_reportPath": report_path,
+                    })
+            _send(q, {"msg": f"Auto-blacklisted {len(df_low):,} low-value comments."})
 
-        video_info["filtered_out"] = filtered_out
         video_info["created_at"] = datetime.now().isoformat()
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(video_info, f, ensure_ascii=False)
-
-        report_path = f"{channel_slug}/{slug}"
 
         with _jobs_lock:
             _jobs[job_id]["status"] = "done"
@@ -122,7 +130,6 @@ def _run_analysis(url: str, job_id: str, filters: dict | None = None) -> None:
             "done": True,
             "report_path": report_path,
             "title": video_info.get("title", ""),
-            "filtered_out": filtered_out,
             "total": len(df_raw),
         })
 
@@ -152,9 +159,9 @@ def route_aggregate():
     return send_file(os.path.join(PROJECT_ROOT, "aggregate.html"))
 
 
-@app.get("/keep")
-def route_keep():
-    return send_file(os.path.join(PROJECT_ROOT, "keep.html"))
+@app.get("/saved")
+def route_saved():
+    return send_file(os.path.join(PROJECT_ROOT, "saved.html"))
 
 
 @app.get("/blacklist")
@@ -179,21 +186,11 @@ def route_js(filename):
 
 # ── API: start / check analysis ───────────────────────────────────────────────
 
-def _parse_filters(data: dict) -> dict:
-    f = data.get("filters") or {}
-    return {
-        "min_chars": bool(f.get("minChars", True)),
-        "min_alpha": bool(f.get("minAlpha", True)),
-        "min_words": bool(f.get("minWords", True)),
-    }
-
-
 @app.post("/api/analyze")
 def api_analyze():
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     force = bool(data.get("force", False))
-    filters = _parse_filters(data)
 
     if not url:
         return jsonify({"error": "url is required"}), 400
@@ -240,7 +237,7 @@ def api_analyze():
             "title": "",
         }
 
-    t = threading.Thread(target=_run_analysis, args=(url, job_id, filters), daemon=True)
+    t = threading.Thread(target=_run_analysis, args=(url, job_id), daemon=True)
     t.start()
 
     return jsonify({"job_id": job_id})
@@ -280,11 +277,11 @@ def api_progress(job_id: str):
 def api_reports():
     # Read all stores once up-front and bucket counts by report path.
     # This avoids scanning parquet files N times (once per report).
-    kept_by      = {}
+    saved_by     = {}
     blacklist_by = {}
     deleted_by   = {}
-    for c in keep_store.all():
-        p = c.get("_reportPath", ""); kept_by[p] = kept_by.get(p, 0) + 1
+    for c in saved_store.all():
+        p = c.get("_reportPath", ""); saved_by[p] = saved_by.get(p, 0) + 1
     for c in blacklist_store.all():
         p = c.get("_reportPath", ""); blacklist_by[p] = blacklist_by.get(p, 0) + 1
     for c in deleted_store.all():
@@ -332,8 +329,7 @@ def api_reports():
                 "created_at": created_at,
                 "comment_count": count,
                 "view_count": info.get("view_count", 0),
-                "filtered_out": info.get("filtered_out", 0),
-                "kept_count": kept_by.get(rel_folder, 0),
+                "saved_count": saved_by.get(rel_folder, 0),
                 "blacklist_count": blacklist_by.get(rel_folder, 0),
                 "deleted_count": deleted_by.get(rel_folder, 0),
             })
@@ -366,24 +362,14 @@ def api_report_data(report_path: str):
     df_raw["like_count"] = (
         pd.to_numeric(df_raw["like_count"], errors="coerce").fillna(0).astype(int)
     )
-    def _qbool(key: str, default: bool = True) -> bool:
-        v = request.args.get(key)
-        if v is None:
-            return default
-        return v.lower() not in ("0", "false", "no")
-    filters = {
-        "min_chars": _qbool("minChars"),
-        "min_alpha": _qbool("minAlpha"),
-        "min_words": _qbool("minWords"),
-    }
-    df = filter_low_value(df_raw, **filters)
+    df = df_raw.copy()
 
     # Filter any legacy classified comments still in parquet
     classified_ids = set()
-    for store in (keep_store, blacklist_store, deleted_store):
+    for store in (saved_store, blacklist_store, deleted_store):
         for c in store.all():
             classified_ids.add(c.get("id"))
-    total_discarded = sum(
+    total_blacklisted = sum(
         1 for c in blacklist_store.all() if c.get("_reportPath") == report_path
     )
     if classified_ids and "id" in df.columns:
@@ -391,9 +377,8 @@ def api_report_data(report_path: str):
 
     df = df.sort_values("like_count", ascending=False).reset_index(drop=True)
 
-    # Count kept/deleted comments from stores
-    kept = keep_store.all()
-    total_kept = sum(1 for i in kept if i.get("_reportPath") == report_path)
+    # Count saved/deleted comments from stores
+    total_saved = sum(1 for i in saved_store.all() if i.get("_reportPath") == report_path)
     total_deleted = sum(1 for c in deleted_store.all() if c.get("_reportPath") == report_path)
 
     phrases = find_repeated_phrases(df)
@@ -412,8 +397,8 @@ def api_report_data(report_path: str):
         "video_info": video_info,
         "comments": comments_df.to_dict(orient="records"),
         "phrases": phrases,
-        "discarded_count": total_discarded,
-        "kept_count": total_kept,
+        "blacklist_count": total_blacklisted,
+        "saved_count": total_saved,
         "deleted_count": total_deleted,
     })
 
@@ -441,18 +426,18 @@ def _move_exclusive(comment: dict, dest_store: CommentStore) -> None:
     """Enforce single ownership: remove from all stores + parquet, then add to dest."""
     cid = comment.get("id")
     report_path = comment.get("_reportPath", "")
-    for store in (keep_store, blacklist_store, deleted_store):
+    for store in (saved_store, blacklist_store, deleted_store):
         store.remove(cid)
     if report_path:
         _remove_from_parquet(cid, report_path)
     dest_store.add(comment)
 
 
-# ── API: comment actions (discard, keep, delete) ──────────────────────────────
+# ── API: comment actions (blacklist, save, delete) ────────────────────────────
 
-@app.post("/api/comment/discard")
-def api_comment_discard():
-    """Discard a comment (move to blacklist). Accepts full comment object."""
+@app.post("/api/comment/blacklist")
+def api_comment_blacklist():
+    """Add a comment to the blacklist. Accepts full comment object."""
     data = request.get_json(force=True, silent=True) or {}
     comment = data.get("comment")
 
@@ -465,7 +450,7 @@ def api_comment_discard():
 
 @app.get("/api/blacklist")
 def api_blacklist():
-    """Fetch all discarded comments (blacklist)."""
+    """Fetch all blacklisted comments."""
     return jsonify(blacklist_store.all())
 
 
@@ -473,6 +458,13 @@ def api_blacklist():
 def api_blacklist_delete(comment_id: str):
     """Remove a comment from the blacklist."""
     blacklist_store.remove(comment_id)
+    return jsonify({"success": True})
+
+
+@app.delete("/api/blacklist")
+def api_blacklist_clear():
+    """Remove all comments from the blacklist."""
+    blacklist_store.clear()
     return jsonify({"success": True})
 
 
@@ -502,29 +494,99 @@ def api_deleted_delete(comment_id: str):
     return jsonify({"success": True})
 
 
-@app.post("/api/comment/keep")
-def api_comment_keep():
-    """Keep (save) a comment to the Keep collection."""
+@app.post("/api/comment/save")
+def api_comment_save():
+    """Save a comment to the Saved collection."""
     data = request.get_json(force=True, silent=True) or {}
     comment = data.get("comment")
 
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    _move_exclusive(comment, keep_store)
+    _move_exclusive(comment, saved_store)
     return jsonify({"success": True})
 
 
-@app.get("/api/keep")
-def api_keep():
-    """Fetch all kept comments from the Keep collection."""
-    return jsonify(keep_store.all())
+@app.get("/api/saved")
+def api_saved():
+    """Fetch all saved comments from the Saved collection."""
+    return jsonify(saved_store.all())
 
 
-@app.delete("/api/keep/<comment_id>")
-def api_keep_delete(comment_id: str):
-    """Remove a comment from the Keep collection."""
-    keep_store.remove(comment_id)
+@app.delete("/api/saved/<comment_id>")
+def api_saved_delete(comment_id: str):
+    """Remove a comment from the Saved collection."""
+    saved_store.remove(comment_id)
+    return jsonify({"success": True})
+
+
+@app.delete("/api/report/<path:report_path>")
+def api_report_delete(report_path: str):
+    """Delete a report and bulk-classify its unclassified comments.
+
+    Body JSON:
+        { "disposition": "blacklist" | "deleted" }
+
+    Already-classified comments (saved/blacklist/deleted) are left untouched.
+    All remaining parquet comments are moved to the chosen store, then the
+    report folder is removed from disk.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    disposition = data.get("disposition", "deleted")
+    if disposition not in ("blacklist", "deleted"):
+        return jsonify({"error": "disposition must be 'blacklist' or 'deleted'"}), 400
+
+    folder = os.path.join(REPORTS_DIR, report_path)
+    if not os.path.isdir(folder):
+        return jsonify({"error": "report not found"}), 404
+
+    dest_store = deleted_store if disposition == "deleted" else blacklist_store
+
+    with _store_lock:
+        # Collect IDs already in any store (skip them)
+        classified_ids = set()
+        for store in (saved_store, blacklist_store, deleted_store):
+            for c in store.all():
+                classified_ids.add(c.get("id"))
+
+        # Load parquet comments and move unclassified ones to dest_store
+        parquets = glob.glob(os.path.join(folder, "*_comments_*.parquet"))
+        if parquets:
+            latest = max(parquets)
+            try:
+                df = pd.read_parquet(latest)
+                if "id" in df.columns:
+                    df["like_count"] = (
+                        pd.to_numeric(df["like_count"], errors="coerce")
+                        .fillna(0)
+                        .astype(int)
+                    )
+                    df["author"] = df.get("author", pd.Series(dtype=str)).fillna("").astype(str)
+                    df["text"]   = df.get("text",   pd.Series(dtype=str)).fillna("").astype(str)
+                    for _, row in df.iterrows():
+                        cid = row.get("id")
+                        if cid and cid not in classified_ids:
+                            dest_store.add({
+                                "id": str(cid),
+                                "author": str(row.get("author", "")),
+                                "text": str(row.get("text", "")),
+                                "like_count": int(row.get("like_count", 0)),
+                                "_reportPath": report_path,
+                            })
+            except Exception:
+                pass  # Best-effort; still delete the folder below
+
+        # Remove report folder from disk
+        shutil.rmtree(folder, ignore_errors=True)
+
+        # Clean up empty channel folder
+        channel_folder = os.path.dirname(folder)
+        try:
+            if channel_folder != REPORTS_DIR and not os.listdir(channel_folder):
+                os.rmdir(channel_folder)
+        except Exception:
+            pass
+
     return jsonify({"success": True})
 
 
@@ -533,7 +595,7 @@ def api_counts():
     """Return comment counts for each store and aggregate total (for nav badges)."""
     aggregate_total = 0
     for parquet_path in glob.glob(os.path.join(REPORTS_DIR, "**", "*.parquet"), recursive=True):
-        # Skip the root-level store parquets (keep/blacklist/deleted)
+        # Skip the root-level store parquets (saved/blacklist/deleted)
         if os.path.dirname(parquet_path) == REPORTS_DIR:
             continue
         try:
@@ -541,7 +603,7 @@ def api_counts():
         except Exception:
             pass
     return jsonify({
-        "keep": len(keep_store.all()),
+        "saved": len(saved_store.all()),
         "blacklist": len(blacklist_store.all()),
         "deleted": len(deleted_store.all()),
         "aggregate": aggregate_total,

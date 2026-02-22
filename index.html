@@ -28,8 +28,8 @@
   </a>
   <nav class="header-nav">
     <a href="/" class="active">Dashboard</a>
-    <a href="/aggregate">Aggregate <span class="nav-badge" id="nav-count-aggregate">0</span></a>
-    <a href="/keep">Keep <span class="nav-badge" id="nav-count-keep">0</span></a>
+    <a href="/aggregate">Pending <span class="nav-badge" id="nav-count-aggregate">0</span></a>
+    <a href="/saved">Saved <span class="nav-badge" id="nav-count-saved">0</span></a>
     <a href="/blacklist">Blacklist <span class="nav-badge" id="nav-count-blacklist">0</span></a>
     <a href="/deleted">Deleted <span class="nav-badge" id="nav-count-deleted">0</span></a>
   </nav>
@@ -39,7 +39,7 @@
 <div class="analyze-bar">
   <div class="analyze-bar-label">
     Analyze Video
-    <button class="settings-gear-btn" onclick="openFilterSettings()" title="Filter settings">
+    <button class="settings-gear-btn" onclick="openFilterSettings()" title="Import Blacklist Settings">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
@@ -70,45 +70,35 @@
   </div>
 </div>
 
-<!-- ── Filter Settings Modal ─────────────────────────────────────────────── -->
+<!-- ── Import Blacklist Settings Modal ───────────────────────────────────── -->
 <div id="filter-settings-modal" class="modal-overlay" onclick="closeFilterSettings(event)">
   <div class="modal-box">
     <div class="modal-header">
-      <span class="modal-title">Import Filter Settings</span>
+      <span class="modal-title">Import Blacklist Settings</span>
       <button class="modal-close" onclick="closeFilterSettings()">&times;</button>
     </div>
-    <p class="modal-desc">These filters are applied when loading comments from a report. Disabling them allows all raw comments through.</p>
-    <div class="filter-list">
-      <label class="filter-row">
-        <div class="filter-info">
-          <span class="filter-name">Minimum 3 words</span>
-          <span class="filter-detail">Removes comments with fewer than 3 words</span>
-        </div>
-        <div class="toggle-wrap">
-          <input type="checkbox" id="filter-min-words" class="toggle-cb" checked>
-          <span class="toggle-track"></span>
-        </div>
-      </label>
-      <label class="filter-row">
-        <div class="filter-info">
-          <span class="filter-name">Minimum 3 characters</span>
-          <span class="filter-detail">Removes comments shorter than 3 characters</span>
-        </div>
-        <div class="toggle-wrap">
-          <input type="checkbox" id="filter-min-chars" class="toggle-cb" checked>
-          <span class="toggle-track"></span>
-        </div>
-      </label>
-      <label class="filter-row">
-        <div class="filter-info">
-          <span class="filter-name">Minimum 2 letters</span>
-          <span class="filter-detail">Removes comments with fewer than 2 alphabetic characters</span>
-        </div>
-        <div class="toggle-wrap">
-          <input type="checkbox" id="filter-min-alpha" class="toggle-cb" checked>
-          <span class="toggle-track"></span>
-        </div>
-      </label>
+    <p class="modal-desc">Low-value comments (too short, no real words) are automatically sent to the blacklist when a video is analyzed.</p>
+  </div>
+</div>
+
+<!-- ── Delete Report Modal ────────────────────────────────────────────────── -->
+<div id="delete-report-modal" class="modal-overlay" onclick="closeDeleteReportModal(event)">
+  <div class="modal-box delete-report-modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Delete Report</span>
+      <button class="modal-close" onclick="closeDeleteReportModal()">&times;</button>
+    </div>
+    <p class="modal-desc">
+      What should happen to unclassified comments in this report?
+      Comments already in Saved, Blacklist, or Deleted are not affected.
+    </p>
+    <div id="delete-report-title" class="delete-report-name"></div>
+    <div class="delete-report-actions">
+      <button class="btn btn-secondary" onclick="confirmDeleteReport('blacklist')">Send to Blacklist</button>
+      <button class="btn btn-danger"    onclick="confirmDeleteReport('deleted')">Send to Deleted</button>
+    </div>
+    <div class="delete-report-cancel">
+      <button class="btn btn-secondary" onclick="closeDeleteReportModal()">Cancel</button>
     </div>
   </div>
 </div>

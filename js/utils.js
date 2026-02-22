@@ -5,7 +5,7 @@ async function loadNavCounts() {
     const res = await fetch('/api/counts');
     if (!res.ok) return;
     const counts = await res.json();
-    const map = { aggregate: 'nav-count-aggregate', keep: 'nav-count-keep', blacklist: 'nav-count-blacklist', deleted: 'nav-count-deleted' };
+    const map = { aggregate: 'nav-count-aggregate', saved: 'nav-count-saved', blacklist: 'nav-count-blacklist', deleted: 'nav-count-deleted' };
     Object.entries(map).forEach(([key, id]) => {
       const el = document.getElementById(id);
       if (el) el.textContent = counts[key] ?? 0;
@@ -111,12 +111,12 @@ function _postAction(endpoint, comment) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({comment}),
-  }).catch(e => console.error(`${endpoint} failed:`, e));
+  }).then(() => loadNavCounts()).catch(e => console.error(`${endpoint} failed:`, e));
 }
 
 function _deleteAction(endpoint) {
   fetch(endpoint, {method: 'DELETE'})
-    .catch(e => console.error(`${endpoint} failed:`, e));
+    .then(() => loadNavCounts()).catch(e => console.error(`${endpoint} failed:`, e));
 }
 
 // ── Column Visibility ──────────────────────────────────────────────────────────
