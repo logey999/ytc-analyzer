@@ -93,14 +93,6 @@ class TableManager {
     const info = `Page ${this.page + 1} of ${totalPages} &nbsp;·&nbsp; ${total.toLocaleString()} total`;
     const atFirst = this.page === 0;
     const atLast = this.page >= totalPages - 1;
-    const paginator = `
-      <div class="agg-toolbar">
-        <span class="pg-info">${info}</span>
-        <div style="display:flex;gap:8px">
-          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(-1)" ${atFirst ? 'disabled' : ''}>&#8592; Prev</button>
-          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(1)"  ${atLast ? 'disabled' : ''}>Next &#8594;</button>
-        </div>
-      </div>`;
 
     // Build column selector
     const colSelector = buildColSelector(
@@ -109,12 +101,22 @@ class TableManager {
       `__tableManagers['${this.config.panelId}'].toggleColumn`
     );
 
+    // Build unified toolbar with pagination info, column selector, and nav buttons
+    const toolbar = `
+      <div class="agg-toolbar">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="pg-info">${info}</span>
+          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(-1)" ${atFirst ? 'disabled' : ''}>&#8592; Prev</button>
+          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(1)"  ${atLast ? 'disabled' : ''}>Next &#8594;</button>
+        </div>
+        ${colSelector}
+      </div>`;
+
     // Render to DOM
     const panel = document.getElementById(this.config.panelId);
     const theadHtml = this._buildTableHead();
     panel.innerHTML = `
-      ${colSelector}
-      ${paginator}
+      ${toolbar}
       <div class="table-wrap"><table>
         <thead>${theadHtml}</thead>
         <tbody>${rows}</tbody>
@@ -166,16 +168,39 @@ class TableManager {
 
   // Build table head
   _buildTableHead() {
-    const colHeaders = this.config.columns.map(col => `
-      <th data-colname="${col.id}" class="col-${col.id} sortable" onclick="__tableManagers['${this.config.panelId}'].sort('${col.id}')">
-        ${col.label}
+    const colHeaders = this.config.columns.map(col => {
+      const headerContent = this._formatHeaderContent(col);
+      return `
+      <th data-colname="${col.id}" class="col-${col.id} sortable" onclick="__tableManagers['${this.config.panelId}'].sort('${col.id}')" ${headerContent.title ? `title="${headerContent.title}"` : ''}>
+        ${headerContent.html}
       </th>
-    `).join('');
+    `}).join('');
 
     return `<tr>
       <th class="col-actions" data-colname="actions"></th>
       ${colHeaders}
     </tr>`;
+  }
+
+  // Format column header with icon and title
+  _formatHeaderContent(col) {
+    const iconMap = {
+      'like_count': { icon: '👍', title: 'Likes' },
+      'author': { icon: '✏️', title: 'Author' },
+      'video': { icon: '🌐', title: 'Video' }
+    };
+
+    if (iconMap[col.id]) {
+      return {
+        html: `<span class="header-icon">${iconMap[col.id].icon}</span>`,
+        title: iconMap[col.id].title
+      };
+    }
+
+    return {
+      html: col.label,
+      title: null
+    };
   }
 
   // Handle action button click
