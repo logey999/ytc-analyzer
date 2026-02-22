@@ -9,6 +9,7 @@ const FILTER_DEFS = [
   { key: 'timestamp_only', label: 'Timestamp Only',      detail: 'Drop bare timestamps like "2:34" or "1:23:45"',    default: true  },
   { key: 'repeat_char',    label: 'Repeated Characters', detail: 'Drop "lolololol", "!!!!!" and similar spam',       default: true  },
   { key: 'english_only',   label: 'English Only',        detail: 'Drop non-English comments',                        default: true  },
+  { key: 'dedup',          label: 'Remove Duplicates',   detail: 'Blacklist all copies of duplicate comments',        default: true  },
 ];
 
 const _FS_KEY = 'ytc_filter_settings';

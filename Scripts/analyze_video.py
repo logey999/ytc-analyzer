@@ -94,22 +94,35 @@ def _channel_slug(channel: str) -> str:
     return _slugify(channel)
 
 
-def _near_dedup(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
+def _near_dedup_remove_all(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
     """
-    Remove near-duplicate comments using fuzzy ratio comparison.
-    Assumes df is already sorted highest-liked first so the best version is kept.
-    O(n²) — fast in practice for typical comment set sizes via rapidfuzz C backend.
+    Find all groups of near-duplicate comments and remove EVERY member of any
+    group with 2+ comments. Uses union-find to correctly cluster transitive matches.
+    O(n²) — fast in practice via rapidfuzz C backend.
     """
+    from collections import Counter
     texts = df["text"].tolist()
-    keep_mask = [True] * len(texts)
-    for i in range(len(texts)):
-        if not keep_mask[i]:
-            continue
-        for j in range(i + 1, len(texts)):
-            if not keep_mask[j]:
-                continue
+    n = len(texts)
+    parent = list(range(n))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(x: int, y: int) -> None:
+        px, py = _find(x), _find(y)
+        if px != py:
+            parent[px] = py
+
+    for i in range(n):
+        for j in range(i + 1, n):
             if _fuzz.ratio(texts[i], texts[j]) >= threshold:
-                keep_mask[j] = False
+                _union(i, j)
+
+    group_sizes = Counter(_find(i) for i in range(n))
+    keep_mask = [group_sizes[_find(i)] == 1 for i in range(n)]
     return df.iloc[[i for i, keep in enumerate(keep_mask) if keep]]
 
 
@@ -140,7 +153,7 @@ def filter_low_value(
         timestamp_only  — drop bare timestamps ("2:34", "1:23:45")
         repeat_char     — drop comments with 5+ identical consecutive characters
         english_only    — drop non-English comments (requires: langdetect)
-        dedup           — drop exact and near-duplicate comments
+        dedup           — drop ALL copies of any exact or near-duplicate comment
         dedup_threshold — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
     """
     df = df.copy()
@@ -186,15 +199,12 @@ def filter_low_value(
 
     # ── dedup: exact then near-duplicate removal (slowest — runs last) ────
     if dedup:
-        # Sort so the highest-liked copy is always kept
-        if "like_count" in df.columns:
-            df = df.sort_values("like_count", ascending=False)
-        # Exact duplicates (case-insensitive)
+        # Exact duplicates (case-insensitive) — remove ALL copies, keep none
         norm = df["text"].str.lower().str.strip()
-        df = df[~norm.duplicated(keep="first")]
-        # Near-duplicates via rapidfuzz
+        df = df[~norm.duplicated(keep=False)]
+        # Near-duplicates via rapidfuzz — remove ALL members of every dup group
         if _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
-            df = _near_dedup(df.reset_index(drop=True), dedup_threshold)
+            df = _near_dedup_remove_all(df.reset_index(drop=True), dedup_threshold)
         elif not _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
             print("  [warn] near-dup dedup requires 'rapidfuzz': pip install rapidfuzz")
 
