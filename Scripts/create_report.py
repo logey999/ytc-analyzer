@@ -46,8 +46,6 @@ _BLUE     = "#5ba4f5"
 _TEAL     = "#2dd4bf"
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
 def esc(text) -> str:
     """HTML-escape a value."""
     return (

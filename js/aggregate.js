@@ -18,14 +18,6 @@ function aggToDeleted(comment, row, table) {
   table.removeRow(comment.id, row);
 }
 
-function _postAction(endpoint, comment) {
-  fetch(endpoint, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({comment}),
-  }).catch(e => console.error(`${endpoint} failed:`, e));
-}
-
 // Create aggregate table manager
 const aggTable = new TableManager({
   panelId: 'main-content',

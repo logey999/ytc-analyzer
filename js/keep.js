@@ -15,19 +15,6 @@ function keepToDeleted(comment, row, table) {
   table.removeRow(comment.id, row);
 }
 
-function _postAction(endpoint, comment) {
-  fetch(endpoint, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({comment}),
-  }).catch(e => console.error(`${endpoint} failed:`, e));
-}
-
-function _deleteAction(endpoint) {
-  fetch(endpoint, {method: 'DELETE'})
-    .catch(e => console.error(`${endpoint} failed:`, e));
-}
-
 // Create keep table manager
 const keepTable = new TableManager({
   panelId: 'main-content',

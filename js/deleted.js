@@ -8,11 +8,6 @@ function deletedPermanentlyRemove(comment, row, table) {
   table.removeRow(comment.id, row);
 }
 
-function _deleteAction(endpoint) {
-  fetch(endpoint, {method: 'DELETE'})
-    .catch(e => console.error(`${endpoint} failed:`, e));
-}
-
 // Create deleted table manager
 const deletedTable = new TableManager({
   panelId: 'main-content',

@@ -23,8 +23,6 @@ import pandas as pd
 from get_comments import get_comments
 from create_report import generate_report
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
 def extract_video_id(url: str) -> str:
     parsed = urlparse(url)
     if parsed.hostname in ("youtu.be",):
@@ -91,8 +89,6 @@ def _find_latest_parquet(folder: str, slug: str):
     return max(matches) if matches else None
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 def main() -> None:
     print()
     print("=" * 60)
@@ -100,7 +96,6 @@ def main() -> None:
     print("=" * 60)
     print()
 
-    # Step 1 — Get URL from user
     url = input("Enter YouTube video URL: ").strip()
     if not url:
         print("No URL provided. Exiting.")
@@ -110,7 +105,6 @@ def main() -> None:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     reports_dir = os.path.join(project_root, "Reports")
 
-    # Check if we already have data for this video anywhere under Reports/
     existing_folder, info_path, video_info = _find_existing_report(reports_dir, video_id)
 
     use_existing = False
@@ -130,7 +124,7 @@ def main() -> None:
     if not use_existing:
         print("\n[1/4] Fetching video info and comments…")
         try:
-            video_info, df_raw = get_comments(url)
+            video_info, df_raw, _ = get_comments(url)
         except Exception as exc:
             print(f"\n  Error: {exc}")
             sys.exit(1)
@@ -161,7 +155,6 @@ def main() -> None:
         df_raw = pd.read_parquet(existing)
         print(f"[2/4] Loaded: {os.path.basename(existing)}")
 
-    # Step 3 — Filter and sort
     df_filtered = filter_low_value(df_raw)
     df_sorted = df_filtered.sort_values("like_count", ascending=False).reset_index(drop=True)
 
@@ -169,7 +162,6 @@ def main() -> None:
     print(f"[3/4] Filtered: {len(df_raw):,} → {len(df_filtered):,} comments "
           f"(removed {removed:,} low-value)")
 
-    # Step 4 — Generate report
     date_str = datetime.now().strftime("%Y-%m-%d")
     report_path = os.path.join(folder, f"{slug}_report_{date_str}.html")
     print("[4/4] Generating report…")

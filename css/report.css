@@ -28,6 +28,14 @@
   --shadow-md:  0 4px 24px rgba(0,0,0,0.5);
   --shadow-lg:  0 8px 48px rgba(0,0,0,0.6);
   --shadow-red: 0 0 24px rgba(255,45,45,0.15);
+
+  /* Teal accent (used by buttons, forms, tables, animations) */
+  --cyan:        #2dd4bf;
+  --cyan-bright: #5eead4;
+
+  /* Extra background/text steps used by component CSS */
+  --bg-1:   #111113;
+  --text-1: #c8c8d4;
 }
 
 *, *::before, *::after {
@@ -52,7 +60,7 @@ body {
   flex-direction: column;
   overflow: hidden;
 
-  /* Subtle noise texture */
+  /* Subtle noise texture + red ambient gradient for depth */
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,45,45,0.06) 0%, transparent 60%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");

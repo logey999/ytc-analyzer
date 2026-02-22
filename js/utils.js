@@ -39,14 +39,10 @@ function fmtN(n) {
   return isNaN(num) ? '0' : num.toLocaleString();
 }
 
-// Deprecated: use fmtN instead (kept for backward compatibility)
+// fmt: like fmtN but returns 'N/A' for non-numeric input (used by report.js)
 function fmt(n) {
   const num = Number(n);
   return isNaN(num) ? (n || 'N/A') : num.toLocaleString();
-}
-
-function truncate(s, n) {
-  return String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s);
 }
 
 function secondsToHms(s) {
@@ -106,6 +102,21 @@ function updateSortIndicators(panelId, sortCol, sortDir) {
     const th = panel.querySelector(`th[data-colname="${colname}"]`);
     if (th) { th.classList.add('sort-active'); if (sortDir === 'asc') th.classList.add('sort-asc'); }
   }
+}
+
+// ── API Action Helpers ─────────────────────────────────────────────────────────
+
+function _postAction(endpoint, comment) {
+  fetch(endpoint, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({comment}),
+  }).catch(e => console.error(`${endpoint} failed:`, e));
+}
+
+function _deleteAction(endpoint) {
+  fetch(endpoint, {method: 'DELETE'})
+    .catch(e => console.error(`${endpoint} failed:`, e));
 }
 
 // ── Column Visibility ──────────────────────────────────────────────────────────

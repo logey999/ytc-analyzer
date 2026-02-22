@@ -52,9 +52,3 @@ const eventBus = {
 // comment:discarded - Comment moved to Blacklist { commentId, reportPath }
 // comment:deleted   - Comment moved to Deleted { commentId, reportPath }
 // comment:restored  - Comment moved back (from blacklist/deleted) { commentId, reportPath }
-//
-// Usage:
-//   eventBus.emit('comment:kept', { commentId: '123', reportPath: 'path' });
-//   eventBus.on('comment:kept', (data) => {
-//     console.log('Comment kept:', data.commentId);
-//   });

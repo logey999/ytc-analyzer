@@ -312,7 +312,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     _url = sys.argv[1]
-    _info, _df = get_comments(_url)
+    _info, _df, _ = get_comments(_url)
     print(f"Title:    {_info['title']}")
     print(f"Channel:  {_info['channel']}")
     print(f"Comments: {len(_df):,}")

@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime
 
 import pandas as pd
+import pyarrow.parquet as pq
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
 # Add Scripts/ to sys.path so sibling modules can be imported
@@ -56,23 +57,6 @@ deleted_store = CommentStore(DELETED_PATH, _store_lock)
 # Job registry: job_id → {queue, status, report_path, title}
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
-
-
-def _load_json_store(path, default):
-    """Load JSON store file, returning default if not found or invalid."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
-
-
-def _save_json_store(path, data):
-    """Atomically save JSON store file (write to temp, then move)."""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    os.replace(tmp, path)
 
 
 # ── Analysis worker ───────────────────────────────────────────────────────────
@@ -294,7 +278,8 @@ def api_progress(job_id: str):
 
 @app.get("/api/reports")
 def api_reports():
-    # Build per-report classification counts in one pass over each store
+    # Read all stores once up-front and bucket counts by report path.
+    # This avoids scanning parquet files N times (once per report).
     kept_by      = {}
     blacklist_by = {}
     deleted_by   = {}
@@ -546,7 +531,6 @@ def api_keep_delete(comment_id: str):
 @app.get("/api/counts")
 def api_counts():
     """Return comment counts for each store and aggregate total (for nav badges)."""
-    import pyarrow.parquet as pq
     aggregate_total = 0
     for parquet_path in glob.glob(os.path.join(REPORTS_DIR, "**", "*.parquet"), recursive=True):
         # Skip the root-level store parquets (keep/blacklist/deleted)
