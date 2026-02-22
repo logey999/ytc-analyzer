@@ -46,7 +46,7 @@ thead th:last-child {
   border-right: none;
 }
 
-/* Header icons */
+/* Header icons (in table columns) */
 .header-icon {
   display: inline-flex;
   align-items: center;
@@ -113,8 +113,8 @@ th.sort-active.sort-asc::after {
 }
 
 .col-author {
-  width: 120px;
-  min-width: 90px;
+  width: 90px;
+  min-width: 70px;
   color: var(--text-2);
 }
 
@@ -132,7 +132,7 @@ th.sort-active.sort-asc::after {
 }
 
 .col-text {
-  width: 45%;
+  width: 60%;
   min-width: 150px;
   color: var(--text-1);
   line-height: 1.4;
@@ -162,8 +162,8 @@ th.sort-active.sort-asc::after {
 }
 
 .col-actions {
-  width: 140px;
-  min-width: 140px;
+  width: 100px;
+  min-width: 100px;
   padding: 8px 6px;
   text-align: center;
 }

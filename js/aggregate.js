@@ -3,7 +3,7 @@
 const COL_DEFS = CONFIG.columns.aggregate;
 
 // Cross-panel action handlers
-function aggToIdeas(comment, row, table) {
+function aggToKeep(comment, row, table) {
   _postAction('/api/comment/keep', comment);
   table.removeRow(comment.id, row);
 }
@@ -35,7 +35,7 @@ const aggTable = new TableManager({
   colPrefKey: CONFIG.storage.colPrefPrefix + 'agg_page',
   emptyMessage: 'No comments yet.',
   actions: [
-    { label: '+', title: 'Keep', className: 'btn-keep', handler: aggToIdeas },
+    { label: '+', title: 'Keep', className: 'btn-keep', handler: aggToKeep },
     { label: '🚫', title: 'Add to Blacklist', className: 'btn-blacklist', handler: aggToBlacklist },
     { label: '🗑', title: 'Move to Deleted', className: 'btn-delete', handler: aggToDeleted },
   ],

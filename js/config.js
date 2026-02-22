@@ -11,11 +11,10 @@ const CONFIG = {
   api: {
     reports: '/api/reports',
     reportData: '/api/report-data',
-    ideas: '/api/ideas',
+    keep: '/api/keep',
     blacklist: '/api/blacklist',
     deleted: '/api/deleted',
-    quota: '/api/quota',
-    analyze: '/api/analyze',
+analyze: '/api/analyze',
     progress: '/api/progress',
     commentKeep: '/api/comment/keep',
     commentDiscard: '/api/comment/discard',
@@ -23,7 +22,7 @@ const CONFIG = {
   },
 
   // Panel names
-  panels: ['reports', 'aggregate', 'ideas', 'blacklist', 'deleted'],
+  panels: ['reports', 'aggregate', 'keep', 'blacklist', 'deleted'],
 
   // Local storage keys
   storage: {

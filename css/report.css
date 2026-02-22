@@ -86,7 +86,7 @@ header {
   box-shadow: 0 1px 0 rgba(255,45,45,0.1), var(--shadow-md);
 }
 
-.header-icon {
+.logo-badge {
   width: 36px;
   height: 36px;
   background: var(--red);
@@ -97,16 +97,12 @@ header {
   font-size: 15px;
   flex-shrink: 0;
   box-shadow: var(--shadow-red);
-  position: absolute;
-  left: 40px;
 }
 
 .header-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  position: absolute;
-  left: 96px;
 }
 
 header h1 {

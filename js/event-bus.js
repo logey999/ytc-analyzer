@@ -48,7 +48,7 @@ const eventBus = {
 
 // ── Event types ────────────────────────────────────────────────────────────────
 //
-// comment:kept      - Comment moved to Ideas { commentId, reportPath }
+// comment:kept      - Comment moved to Keep { commentId, reportPath }
 // comment:discarded - Comment moved to Blacklist { commentId, reportPath }
 // comment:deleted   - Comment moved to Deleted { commentId, reportPath }
 // comment:restored  - Comment moved back (from blacklist/deleted) { commentId, reportPath }

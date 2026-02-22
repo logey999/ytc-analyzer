@@ -50,13 +50,21 @@ def _channel_slug(channel: str) -> str:
     return _slugify(channel)
 
 
-def filter_low_value(df: pd.DataFrame) -> pd.DataFrame:
+def filter_low_value(
+    df: pd.DataFrame,
+    min_chars: bool = True,
+    min_alpha: bool = True,
+    min_words: bool = True,
+) -> pd.DataFrame:
     """Remove empty, near-empty, and non-alphabetic comments."""
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
-    df = df[df["text"].str.len() >= 3]
-    df = df[df["text"].str.count(r"[a-zA-Z]") >= 2]
-    df = df[df["text"].str.split().str.len() >= 3]
+    if min_chars:
+        df = df[df["text"].str.len() >= 3]
+    if min_alpha:
+        df = df[df["text"].str.count(r"[a-zA-Z]") >= 2]
+    if min_words:
+        df = df[df["text"].str.split().str.len() >= 3]
     return df
 
 

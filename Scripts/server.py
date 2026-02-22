@@ -43,14 +43,13 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS_DIR = os.path.join(PROJECT_ROOT, "Reports")
 
 # JSON stores for persistence
-DISCARDED_PATH = os.path.join(PROJECT_ROOT, "Reports", "discarded.json")
-IDEAS_PATH     = os.path.join(PROJECT_ROOT, "Reports", "ideas.json")
-DELETED_PATH   = os.path.join(PROJECT_ROOT, "Reports", "deleted.json")
-QUOTA_PATH     = os.path.join(PROJECT_ROOT, "Reports", "quota.json")
+DISCARDED_PATH = os.path.join(PROJECT_ROOT, "Reports", "discarded.parquet")
+KEEP_PATH      = os.path.join(PROJECT_ROOT, "Reports", "keep.parquet")
+DELETED_PATH   = os.path.join(PROJECT_ROOT, "Reports", "deleted.parquet")
 _store_lock = threading.RLock()
 
 # Initialize CommentStore instances
-ideas_store = CommentStore(IDEAS_PATH, _store_lock)
+keep_store = CommentStore(KEEP_PATH, _store_lock)
 blacklist_store = CommentStore(DISCARDED_PATH, _store_lock)
 deleted_store = CommentStore(DELETED_PATH, _store_lock)
 
@@ -76,24 +75,13 @@ def _save_json_store(path, data):
     os.replace(tmp, path)
 
 
-def _add_quota(n: int) -> None:
-    """Add n units to the quota counter."""
-    with _store_lock:
-        quota = _load_json_store(QUOTA_PATH, {"date": "", "used": 0})
-        today = datetime.now().strftime("%Y-%m-%d")
-        if quota.get("date") != today:
-            quota = {"date": today, "used": 0}
-        quota["used"] = quota.get("used", 0) + n
-        _save_json_store(QUOTA_PATH, quota)
-
-
 # ── Analysis worker ───────────────────────────────────────────────────────────
 
 def _send(q: queue.Queue, data: dict) -> None:
     q.put(json.dumps(data, ensure_ascii=False))
 
 
-def _run_analysis(url: str, job_id: str) -> None:
+def _run_analysis(url: str, job_id: str, filters: dict | None = None) -> None:
     with _jobs_lock:
         q = _jobs[job_id]["queue"]
 
@@ -122,13 +110,22 @@ def _run_analysis(url: str, job_id: str) -> None:
         parquet_path = os.path.join(folder, f"{slug}_comments_{date_str}.parquet")
 
         df_raw.to_parquet(parquet_path, index=False)
-        with open(info_path, "w", encoding="utf-8") as f:
-            json.dump(video_info, f, ensure_ascii=False)
 
         _send(q, {"msg": f"Saved {len(df_raw):,} comments to disk."})
 
-        # Track API quota usage
-        _add_quota(units_used)
+        f = filters or {}
+        df_filtered = filter_low_value(
+            df_raw,
+            min_chars=f.get("min_chars", True),
+            min_alpha=f.get("min_alpha", True),
+            min_words=f.get("min_words", True),
+        )
+        filtered_out = len(df_raw) - len(df_filtered)
+
+        video_info["filtered_out"] = filtered_out
+        video_info["created_at"] = datetime.now().isoformat()
+        with open(info_path, "w", encoding="utf-8") as f:
+            json.dump(video_info, f, ensure_ascii=False)
 
         report_path = f"{channel_slug}/{slug}"
 
@@ -141,6 +138,8 @@ def _run_analysis(url: str, job_id: str) -> None:
             "done": True,
             "report_path": report_path,
             "title": video_info.get("title", ""),
+            "filtered_out": filtered_out,
+            "total": len(df_raw),
         })
 
     except Exception as exc:
@@ -169,9 +168,9 @@ def route_aggregate():
     return send_file(os.path.join(PROJECT_ROOT, "aggregate.html"))
 
 
-@app.get("/ideas")
-def route_ideas():
-    return send_file(os.path.join(PROJECT_ROOT, "ideas.html"))
+@app.get("/keep")
+def route_keep():
+    return send_file(os.path.join(PROJECT_ROOT, "keep.html"))
 
 
 @app.get("/blacklist")
@@ -196,11 +195,21 @@ def route_js(filename):
 
 # ── API: start / check analysis ───────────────────────────────────────────────
 
+def _parse_filters(data: dict) -> dict:
+    f = data.get("filters") or {}
+    return {
+        "min_chars": bool(f.get("minChars", True)),
+        "min_alpha": bool(f.get("minAlpha", True)),
+        "min_words": bool(f.get("minWords", True)),
+    }
+
+
 @app.post("/api/analyze")
 def api_analyze():
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     force = bool(data.get("force", False))
+    filters = _parse_filters(data)
 
     if not url:
         return jsonify({"error": "url is required"}), 400
@@ -247,7 +256,7 @@ def api_analyze():
             "title": "",
         }
 
-    t = threading.Thread(target=_run_analysis, args=(url, job_id), daemon=True)
+    t = threading.Thread(target=_run_analysis, args=(url, job_id, filters), daemon=True)
     t.start()
 
     return jsonify({"job_id": job_id})
@@ -285,6 +294,17 @@ def api_progress(job_id: str):
 
 @app.get("/api/reports")
 def api_reports():
+    # Build per-report classification counts in one pass over each store
+    kept_by      = {}
+    blacklist_by = {}
+    deleted_by   = {}
+    for c in keep_store.all():
+        p = c.get("_reportPath", ""); kept_by[p] = kept_by.get(p, 0) + 1
+    for c in blacklist_store.all():
+        p = c.get("_reportPath", ""); blacklist_by[p] = blacklist_by.get(p, 0) + 1
+    for c in deleted_store.all():
+        p = c.get("_reportPath", ""); deleted_by[p] = deleted_by.get(p, 0) + 1
+
     results = []
     pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
     for info_path in glob.glob(pattern, recursive=True):
@@ -311,6 +331,12 @@ def api_reports():
                 date_str = ""
                 count = 0
 
+            # created_at: prefer stored ISO timestamp, fall back to parquet mtime
+            created_at = info.get("created_at", "")
+            if not created_at and parquets:
+                mtime = os.path.getmtime(max(parquets))
+                created_at = datetime.fromtimestamp(mtime).isoformat()
+
             rel_folder = os.path.relpath(folder, REPORTS_DIR).replace("\\", "/")
             results.append({
                 "path": rel_folder,
@@ -318,13 +344,18 @@ def api_reports():
                 "channel": info.get("channel", ""),
                 "thumbnail": info.get("thumbnail", ""),
                 "date": date_str,
+                "created_at": created_at,
                 "comment_count": count,
                 "view_count": info.get("view_count", 0),
+                "filtered_out": info.get("filtered_out", 0),
+                "kept_count": kept_by.get(rel_folder, 0),
+                "blacklist_count": blacklist_by.get(rel_folder, 0),
+                "deleted_count": deleted_by.get(rel_folder, 0),
             })
         except Exception:
             continue
 
-    results.sort(key=lambda x: x.get("date", ""), reverse=True)
+    results.sort(key=lambda x: x.get("created_at", x.get("date", "")), reverse=True)
     return jsonify(results)
 
 
@@ -350,20 +381,35 @@ def api_report_data(report_path: str):
     df_raw["like_count"] = (
         pd.to_numeric(df_raw["like_count"], errors="coerce").fillna(0).astype(int)
     )
-    df = filter_low_value(df_raw)
+    def _qbool(key: str, default: bool = True) -> bool:
+        v = request.args.get(key)
+        if v is None:
+            return default
+        return v.lower() not in ("0", "false", "no")
+    filters = {
+        "min_chars": _qbool("minChars"),
+        "min_alpha": _qbool("minAlpha"),
+        "min_words": _qbool("minWords"),
+    }
+    df = filter_low_value(df_raw, **filters)
 
-    # Load and filter out discarded comments
-    discarded = blacklist_store.all()
-    discard_ids = {c.get("id") for c in discarded if c.get("_reportPath") == report_path}
-    total_discarded = len(discard_ids)
-    if discard_ids and "id" in df.columns:
-        df = df[~df["id"].isin(discard_ids)]
+    # Filter any legacy classified comments still in parquet
+    classified_ids = set()
+    for store in (keep_store, blacklist_store, deleted_store):
+        for c in store.all():
+            classified_ids.add(c.get("id"))
+    total_discarded = sum(
+        1 for c in blacklist_store.all() if c.get("_reportPath") == report_path
+    )
+    if classified_ids and "id" in df.columns:
+        df = df[~df["id"].isin(classified_ids)]
 
     df = df.sort_values("like_count", ascending=False).reset_index(drop=True)
 
-    # Count kept comments from ideas store
-    ideas = ideas_store.all()
-    total_kept = sum(1 for i in ideas if i.get("_reportPath") == report_path)
+    # Count kept/deleted comments from stores
+    kept = keep_store.all()
+    total_kept = sum(1 for i in kept if i.get("_reportPath") == report_path)
+    total_deleted = sum(1 for c in deleted_store.all() if c.get("_reportPath") == report_path)
 
     phrases = find_repeated_phrases(df)
 
@@ -383,10 +429,41 @@ def api_report_data(report_path: str):
         "phrases": phrases,
         "discarded_count": total_discarded,
         "kept_count": total_kept,
+        "deleted_count": total_deleted,
     })
 
 
-# ── API: comment actions (discard, keep, ideas) ────────────────────────────────
+# ── Comment ownership helpers ─────────────────────────────────────────────────
+
+def _remove_from_parquet(comment_id: str, report_path: str) -> None:
+    """Remove a comment row from the parquet file for the given report."""
+    parts = report_path.split("/")
+    if len(parts) != 2:
+        return
+    channel_slug, video_slug = parts
+    folder = os.path.join(PROJECT_ROOT, "Reports", channel_slug, video_slug)
+    matches = glob.glob(os.path.join(folder, f"{video_slug}_comments_*.parquet"))
+    if not matches:
+        return
+    parquet_path = matches[0]
+    df = pd.read_parquet(parquet_path)
+    if "id" in df.columns and comment_id in df["id"].values:
+        df = df[df["id"] != comment_id]
+        df.to_parquet(parquet_path, index=False)
+
+
+def _move_exclusive(comment: dict, dest_store: CommentStore) -> None:
+    """Enforce single ownership: remove from all stores + parquet, then add to dest."""
+    cid = comment.get("id")
+    report_path = comment.get("_reportPath", "")
+    for store in (keep_store, blacklist_store, deleted_store):
+        store.remove(cid)
+    if report_path:
+        _remove_from_parquet(cid, report_path)
+    dest_store.add(comment)
+
+
+# ── API: comment actions (discard, keep, delete) ──────────────────────────────
 
 @app.post("/api/comment/discard")
 def api_comment_discard():
@@ -397,7 +474,7 @@ def api_comment_discard():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    blacklist_store.add(comment)
+    _move_exclusive(comment, blacklist_store)
     return jsonify({"success": True})
 
 
@@ -423,7 +500,7 @@ def api_comment_delete():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    deleted_store.add(comment)
+    _move_exclusive(comment, deleted_store)
     return jsonify({"success": True})
 
 
@@ -442,52 +519,49 @@ def api_deleted_delete(comment_id: str):
 
 @app.post("/api/comment/keep")
 def api_comment_keep():
-    """Keep (save) a comment to the Ideas collection."""
+    """Keep (save) a comment to the Keep collection."""
     data = request.get_json(force=True, silent=True) or {}
     comment = data.get("comment")
 
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    ideas_store.add(comment)
+    _move_exclusive(comment, keep_store)
     return jsonify({"success": True})
 
 
-@app.get("/api/ideas")
-def api_ideas():
-    """Fetch all kept comments from the Ideas collection."""
-    return jsonify(ideas_store.all())
+@app.get("/api/keep")
+def api_keep():
+    """Fetch all kept comments from the Keep collection."""
+    return jsonify(keep_store.all())
 
 
-@app.delete("/api/ideas/<comment_id>")
-def api_ideas_delete(comment_id: str):
-    """Remove a comment from the Ideas collection."""
-    ideas_store.remove(comment_id)
+@app.delete("/api/keep/<comment_id>")
+def api_keep_delete(comment_id: str):
+    """Remove a comment from the Keep collection."""
+    keep_store.remove(comment_id)
     return jsonify({"success": True})
 
 
 @app.get("/api/counts")
 def api_counts():
-    """Return comment counts for each store (for nav badges)."""
+    """Return comment counts for each store and aggregate total (for nav badges)."""
+    import pyarrow.parquet as pq
+    aggregate_total = 0
+    for parquet_path in glob.glob(os.path.join(REPORTS_DIR, "**", "*.parquet"), recursive=True):
+        # Skip the root-level store parquets (keep/blacklist/deleted)
+        if os.path.dirname(parquet_path) == REPORTS_DIR:
+            continue
+        try:
+            aggregate_total += pq.read_metadata(parquet_path).num_rows
+        except Exception:
+            pass
     return jsonify({
-        "ideas": len(ideas_store.all()),
+        "keep": len(keep_store.all()),
         "blacklist": len(blacklist_store.all()),
         "deleted": len(deleted_store.all()),
+        "aggregate": aggregate_total,
     })
-
-
-@app.get("/api/quota")
-def api_quota():
-    """Get API quota usage for today."""
-    with _store_lock:
-        quota = _load_json_store(QUOTA_PATH, {"date": "", "used": 0})
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    if quota.get("date") != today:
-        return jsonify({"used": 0, "remaining": 10000, "limit": 10000})
-
-    used = quota.get("used", 0)
-    return jsonify({"used": used, "remaining": max(0, 10000 - used), "limit": 10000})
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

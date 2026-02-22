@@ -22,9 +22,11 @@ class TableManager {
     this.sortCol = 'like_count';
     this.sortDir = 'desc';
 
-    // Load column visibility preferences
-    this.colPrefs = JSON.parse(
-      localStorage.getItem(config.colPrefKey) || '{}'
+    // Load column visibility preferences (defaults merged under localStorage values)
+    this.colPrefs = Object.assign(
+      {},
+      config.defaultColPrefs || {},
+      JSON.parse(localStorage.getItem(config.colPrefKey) || '{}')
     );
 
     this.loaded = false;
@@ -68,6 +70,14 @@ class TableManager {
     }
 
     this.loading = false;
+  }
+
+  // Set data directly (no API fetch)
+  setData(items) {
+    this.data = Array.isArray(items) ? items : [];
+    this.page = 0;
+    this.loaded = true;
+    this.sort(this.sortCol, this.sortDir);
   }
 
   // Render current page of data

@@ -14,7 +14,7 @@ import json
 bp = Blueprint('api_reports', __name__, url_prefix='/api')
 
 
-def register_routes(app, projects_root, filter_low_value, find_repeated_phrases, ideas_store, blacklist_store):
+def register_routes(app, projects_root, filter_low_value, find_repeated_phrases, keep_store, blacklist_store):
     """
     Register report routes with the app.
 
@@ -23,7 +23,7 @@ def register_routes(app, projects_root, filter_low_value, find_repeated_phrases,
         projects_root: Root directory path
         filter_low_value: Function to filter low-value comments
         find_repeated_phrases: Function to find repeated phrases
-        ideas_store: CommentStore for ideas
+        keep_store: CommentStore for ideas
         blacklist_store: CommentStore for blacklist
     """
 

@@ -11,67 +11,106 @@
 <link rel="stylesheet" href="/css/animations.css">
 <link rel="stylesheet" href="/css/forms.css">
 <link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/filter-settings.css">
 <script src="/js/config.js"></script>
 <script src="/js/utils.js"></script>
+<script src="/js/filter-settings.js"></script>
 </head>
 <body>
 
 <header>
-  <div class="header-icon">&#9654;</div>
-  <div class="header-text">
-    <h1>ytc-analyzer</h1>
-    <span class="subtitle">YouTube Comment Analyzer</span>
-  </div>
+  <a class="header-link" href="/">
+    <div class="logo-badge">&#9654;</div>
+    <div class="header-text">
+      <h1>ytc-analyzer</h1>
+      <span class="subtitle">YouTube Comment Analyzer</span>
+    </div>
+  </a>
   <nav class="header-nav">
     <a href="/" class="active">Dashboard</a>
-    <a href="/aggregate">Aggregate</a>
-    <a href="/ideas">Keep <span class="nav-badge" id="nav-count-ideas">0</span></a>
+    <a href="/aggregate">Aggregate <span class="nav-badge" id="nav-count-aggregate">0</span></a>
+    <a href="/keep">Keep <span class="nav-badge" id="nav-count-keep">0</span></a>
     <a href="/blacklist">Blacklist <span class="nav-badge" id="nav-count-blacklist">0</span></a>
     <a href="/deleted">Deleted <span class="nav-badge" id="nav-count-deleted">0</span></a>
   </nav>
 </header>
 
-<div class="dashboard">
+<!-- ── Analyze bar ────────────────────────────────────────────────────────── -->
+<div class="analyze-bar">
+  <div class="analyze-bar-label">
+    Analyze Video
+    <button class="settings-gear-btn" onclick="openFilterSettings()" title="Filter settings">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </div>
+  <input
+    id="url-input"
+    class="url-input"
+    type="text"
+    placeholder="https://youtube.com/watch?v=..."
+    autocomplete="off"
+    spellcheck="false"
+  >
+  <button id="analyze-btn" class="btn btn-primary" onclick="startAnalyze()">
+    &#9654;&nbsp; Analyze
+  </button>
+</div>
 
-  <!-- ── LEFT SIDEBAR ──────────────────────────────────────────────────────── -->
-  <div class="sidebar">
-    <div class="sidebar-inner">
+<!-- ── Reports list ───────────────────────────────────────────────────────── -->
+<div class="reports-panel">
+  <div class="reports-toolbar">
+    <span class="reports-toolbar-label">Sort</span>
+    <button class="sort-btn sort-btn-active" data-sort="date" data-label="Date" onclick="setSort('date')">Date ↓</button>
+    <button class="sort-btn" data-sort="name" data-label="Name" onclick="setSort('name')">Name</button>
+  </div>
+  <div id="panel-reports" class="reports-list">
+    <div class="reports-empty">Loading reports…</div>
+  </div>
+</div>
 
-      <div>
-        <div class="sidebar-section-label">Analyze Video<span id="quota-display" class="quota-inline"></span></div>
-        <div class="url-form">
-          <input
-            id="url-input"
-            class="url-input"
-            type="text"
-            placeholder="https://youtube.com/watch?v=..."
-            autocomplete="off"
-            spellcheck="false"
-          >
-          <button id="analyze-btn" class="btn btn-primary" onclick="startAnalyze()">
-            &#9654;&nbsp; Analyze
-          </button>
-          <p class="analyze-hint">Multiple videos can be analyzed simultaneously.</p>
+<!-- ── Filter Settings Modal ─────────────────────────────────────────────── -->
+<div id="filter-settings-modal" class="modal-overlay" onclick="closeFilterSettings(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Import Filter Settings</span>
+      <button class="modal-close" onclick="closeFilterSettings()">&times;</button>
+    </div>
+    <p class="modal-desc">These filters are applied when loading comments from a report. Disabling them allows all raw comments through.</p>
+    <div class="filter-list">
+      <label class="filter-row">
+        <div class="filter-info">
+          <span class="filter-name">Minimum 3 words</span>
+          <span class="filter-detail">Removes comments with fewer than 3 words</span>
         </div>
-      </div>
-
-      <!-- Jobs list -->
-      <div id="jobs-area">
-        <div class="sidebar-section-label">Queue</div>
-        <div id="jobs-list"></div>
-      </div>
-
-
+        <div class="toggle-wrap">
+          <input type="checkbox" id="filter-min-words" class="toggle-cb" checked>
+          <span class="toggle-track"></span>
+        </div>
+      </label>
+      <label class="filter-row">
+        <div class="filter-info">
+          <span class="filter-name">Minimum 3 characters</span>
+          <span class="filter-detail">Removes comments shorter than 3 characters</span>
+        </div>
+        <div class="toggle-wrap">
+          <input type="checkbox" id="filter-min-chars" class="toggle-cb" checked>
+          <span class="toggle-track"></span>
+        </div>
+      </label>
+      <label class="filter-row">
+        <div class="filter-info">
+          <span class="filter-name">Minimum 2 letters</span>
+          <span class="filter-detail">Removes comments with fewer than 2 alphabetic characters</span>
+        </div>
+        <div class="toggle-wrap">
+          <input type="checkbox" id="filter-min-alpha" class="toggle-cb" checked>
+          <span class="toggle-track"></span>
+        </div>
+      </label>
     </div>
   </div>
-
-  <!-- ── REPORTS PANEL ─────────────────────────────────────────────────────── -->
-  <div class="reports-panel">
-    <div id="panel-reports" class="reports-list">
-      <div class="reports-empty">Loading reports…</div>
-    </div>
-  </div>
-
 </div>
 
 <script src="/js/dashboard.js"></script>

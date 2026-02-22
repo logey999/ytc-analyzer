@@ -51,6 +51,17 @@ body {
   position: relative;
 }
 
+.strip-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.strip-nav .nav-btn {
+  padding: 5px 10px;
+}
+
 .strip-thumb {
   width: 80px;
   height: 45px;

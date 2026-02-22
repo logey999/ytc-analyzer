@@ -3,51 +3,119 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const _jobs = new Map();
+let _lastReports = [];
+let _sortBy  = 'date'; // 'date' | 'name'
+let _sortDir = 'desc';
 
-// ── Load reports on startup ───────────────────────────────────────────────────
 
-async function loadReports() {
+// ── Load reports ──────────────────────────────────────────────────────────────
+
+async function loadReports(newPath = null) {
   try {
     const res = await fetch('/api/reports');
-    const reports = await res.json();
-    renderReports(reports);
+    _lastReports = await res.json();
+    renderReports(_lastReports, newPath);
   } catch (e) {
     document.getElementById('panel-reports').innerHTML =
       '<div class="reports-empty">Failed to load reports.</div>';
   }
 }
 
-function renderReports(reports) {
+function sortReports(reports) {
+  return [...reports].sort((a, b) => {
+    let va, vb;
+    if (_sortBy === 'name') {
+      va = (a.title || '').toLowerCase();
+      vb = (b.title || '').toLowerCase();
+    } else {
+      // Use full ISO datetime for precise ordering; fall back to date string
+      va = a.created_at || a.date || '';
+      vb = b.created_at || b.date || '';
+    }
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return _sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function setSort(by) {
+  if (_sortBy === by) {
+    _sortDir = _sortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _sortBy  = by;
+    _sortDir = by === 'date' ? 'desc' : 'asc';
+  }
+  updateSortButtons();
+  renderReports(_lastReports);
+}
+
+function updateSortButtons() {
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    const by = btn.dataset.sort;
+    const active = by === _sortBy;
+    btn.classList.toggle('sort-btn-active', active);
+    btn.textContent = btn.dataset.label + (active ? (_sortDir === 'desc' ? ' ↓' : ' ↑') : '');
+  });
+}
+
+function renderReports(reports, newPath = null) {
   const list = document.getElementById('panel-reports');
 
-  if (!reports.length) {
+  // Preserve active (running/cached) job cards — they live at the top of the list
+  const activeJobCards = [...list.querySelectorAll('.job-card')].filter(el => {
+    const jobKey = el.id.replace('job-', '');
+    const job = _jobs.get(jobKey);
+    return job && (job.status === 'running' || job.status === 'cached');
+  });
+
+  // Remove everything that isn't an active job card
+  [...list.children].forEach(c => {
+    if (!c.classList.contains('job-card')) c.remove();
+  });
+
+  if (!reports.length && !activeJobCards.length) {
     list.innerHTML = '<div class="reports-empty">No reports yet. Analyze a video to get started.</div>';
     return;
   }
 
-  list.innerHTML = reports.map(r => {
-    const thumb = r.thumbnail
-      ? `<img class="report-card-thumb" src="${escAttr(r.thumbnail)}" alt="" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
-      : `<div class="report-card-thumb-placeholder">&#9654;</div>`;
+  sortReports(reports).forEach(r => {
+    const isNew = newPath !== null && r.path === newPath;
+    list.insertAdjacentHTML('beforeend', buildReportCardHTML(r, isNew));
+  });
+}
 
-    const date     = r.date  ? r.date : '—';
-    const views    = r.view_count    ? Number(r.view_count).toLocaleString()    + ' views'    : '';
-    const comments = r.comment_count ? Number(r.comment_count).toLocaleString() + ' comments' : '';
+function buildReportCardHTML(r, isNew = false) {
+  const filteredOut = r.filtered_out || 0;
+  const thumb = r.thumbnail
+    ? `<img class="report-card-thumb" src="${escAttr(r.thumbnail)}" alt="" loading="lazy" onerror="this.replaceWith(makePlaceholder())">`
+    : `<div class="report-card-thumb-placeholder">&#9654;</div>`;
 
-    return `<a class="report-card" href="/report?path=${encodeURIComponent(r.path)}">
-      ${thumb}
-      <div class="report-card-body">
-        <div class="report-card-title">${esc(r.title || r.path)}</div>
-        <div class="report-card-meta">
-          <span>${esc(r.channel)}</span>
-          ${date     ? `<span>&#183; ${esc(date)}</span>`     : ''}
-          ${views    ? `<span>&#183; ${esc(views)}</span>`    : ''}
-          ${comments ? `<span>&#183; ${esc(comments)}</span>` : ''}
-        </div>
+  const date  = r.date       ? r.date : '—';
+  const views = r.view_count ? Number(r.view_count).toLocaleString() + ' views' : '';
+
+  const n  = Number(r.comment_count  || 0).toLocaleString();
+  const fo = Number(r.filtered_out   || 0).toLocaleString();
+  const k  = Number(r.kept_count     || 0).toLocaleString();
+  const bl = Number(r.blacklist_count|| 0).toLocaleString();
+  const dl = Number(r.deleted_count  || 0).toLocaleString();
+  const statsLabel = r.comment_count != null
+    ? `${n} comments · ${fo} filtered - ${k} kept - ${bl} blacklisted · ${dl} deleted`
+    : '';
+
+  const newClass = isNew ? ' report-card-new' : '';
+
+  return `<a class="report-card${newClass}" href="/report?path=${encodeURIComponent(r.path)}">
+    ${thumb}
+    <div class="report-card-body">
+      <div class="report-card-title">${esc(r.title || r.path)}</div>
+      <div class="report-card-meta">
+        <span>${esc(r.channel)}</span>
+        ${date       ? `<span>&#183; ${esc(date)}</span>`       : ''}
+        ${views      ? `<span>&#183; ${esc(views)}</span>`      : ''}
+        ${statsLabel ? `<span>&#183; ${esc(statsLabel)}</span>` : ''}
       </div>
-      <span class="report-card-arrow">&#8594;</span>
-    </a>`;
-  }).join('');
+    </div>
+    <span class="report-card-arrow">&#8594;</span>
+  </a>`;
 }
 
 function makePlaceholder() {
@@ -57,7 +125,7 @@ function makePlaceholder() {
   return d;
 }
 
-// ── Job rows ──────────────────────────────────────────────────────────────────
+// ── Job cards (in-list) ───────────────────────────────────────────────────────
 
 function updateAnalyzeBtn() {
   const btn = document.getElementById('analyze-btn');
@@ -66,73 +134,104 @@ function updateAnalyzeBtn() {
   btn.innerHTML = full ? `&#9654;&nbsp; Queue full (${CONFIG.ui.maxJobs})` : '&#9654;&nbsp; Analyze';
 }
 
-function showJobsArea() {
-  document.getElementById('jobs-area').style.display = 'flex';
-}
+function createJobCard(jobKey, urlDisplay) {
+  // Clear the empty-state placeholder if present
+  const empty = document.querySelector('#panel-reports .reports-empty');
+  if (empty) empty.remove();
 
-function createJobRow(jobKey, urlDisplay) {
-  showJobsArea();
-  const row = document.createElement('div');
-  row.className = 'job-row';
-  row.id = 'job-' + jobKey;
-  row.innerHTML = `
-    <div class="job-icon"><div class="spinner"></div></div>
-    <div class="job-body">
-      <div class="job-title">${esc(urlDisplay)}</div>
-      <div class="job-status">Starting…</div>
+  const card = document.createElement('div');
+  card.className = 'report-card job-card report-card-new';
+  card.id = 'job-' + jobKey;
+  card.innerHTML = `
+    <div class="report-card-thumb--job">
+      <div class="spinner"></div>
+    </div>
+    <div class="report-card-body">
+      <div class="report-card-title">${esc(urlDisplay)}</div>
+      <div class="report-card-meta"><span class="job-status-text">Starting…</span></div>
     </div>`;
-  document.getElementById('jobs-list').prepend(row);
-  return row;
+
+  document.getElementById('panel-reports').prepend(card);
+  card.addEventListener('animationend', () => card.classList.remove('report-card-new'), { once: true });
+  return card;
 }
 
 function setJobRunning(jobKey, msg) {
-  const row = document.getElementById('job-' + jobKey);
-  if (!row) return;
-  row.querySelector('.job-status').textContent = msg;
-  row.querySelector('.job-status').className = 'job-status';
+  const card = document.getElementById('job-' + jobKey);
+  if (!card) return;
+  card.querySelector('.job-status-text').textContent = msg;
 }
 
 function setJobCached(jobKey, title, metaText) {
-  const row = document.getElementById('job-' + jobKey);
-  if (!row) return;
-  row.className = 'job-row job-cached';
-  row.querySelector('.job-icon').innerHTML = '&#128190;';
-  row.querySelector('.job-title').textContent = title;
-  const statusEl = row.querySelector('.job-status');
-  statusEl.className = 'job-status status-cache';
+  const card = document.getElementById('job-' + jobKey);
+  if (!card) return;
+  card.classList.add('job-cached');
+  card.querySelector('.report-card-title').textContent = title;
+
+  const statusEl = card.querySelector('.job-status-text');
+  statusEl.className = 'job-status-text status-cache';
   statusEl.textContent = metaText;
-  const btns = document.createElement('div');
-  btns.className = 'job-cache-btns';
-  btns.innerHTML = `
-    <button class="btn-xs btn-xs-secondary" onclick="useCached('${jobKey}')">Use Cached</button>
-    <button class="btn-xs btn-xs-primary"   onclick="fetchFresh('${jobKey}')">Fetch Fresh</button>`;
-  row.querySelector('.job-body').appendChild(btns);
+
+  card.querySelector('.report-card-thumb--job').innerHTML = `
+    <button class="job-cache-btn job-cache-use" onclick="useCached('${jobKey}')">Use Cached</button>
+    <button class="job-cache-btn job-cache-fresh" onclick="fetchFresh('${jobKey}')">Fetch Fresh</button>`;
 }
 
-function setJobDone(jobKey, title, reportPath) {
-  const row = document.getElementById('job-' + jobKey);
-  if (!row) return;
-  row.className = 'job-row job-done';
-  row.querySelector('.job-icon').innerHTML = '&#10003;';
-  if (title) row.querySelector('.job-title').textContent = title;
-  const statusEl = row.querySelector('.job-status');
-  statusEl.className = 'job-status status-done';
-  statusEl.textContent = 'Done';
-  const link = document.createElement('a');
-  link.className = 'job-view-link';
-  link.href = '/report?path=' + encodeURIComponent(reportPath);
-  link.textContent = 'View →';
-  row.appendChild(link);
+function setJobDone(jobKey, title, reportPath, filteredOut) {
+  const card = document.getElementById('job-' + jobKey);
+  if (!card) return;
+
+  const job = _jobs.get(jobKey);
+  if (job) { job.status = 'done'; job.reportPath = reportPath; job.filteredOut = filteredOut || 0; }
+
+  // Remove cached buttons from thumb if present, show checkmark
+  card.querySelector('.report-card-thumb--job').innerHTML = '<span class="job-done-check">&#10003;</span>';
+
+  card.classList.remove('job-cached');
+  card.classList.add('job-done');
+
+  if (title) card.querySelector('.report-card-title').textContent = title;
+
+  const filteredLabel = filteredOut > 0
+    ? ` <span class="job-filtered-out">${filteredOut.toLocaleString()} filtered</span>`
+    : '';
+
+  const meta = card.querySelector('.report-card-meta');
+  meta.innerHTML = `<span class="job-status-text status-done">Done${filteredLabel}</span>`;
+
+  // Make card clickable while the temp card is still visible
+  card.style.cursor = 'pointer';
+  card.onclick = (e) => {
+    if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') return;
+    window.location.href = '/report?path=' + encodeURIComponent(reportPath);
+  };
+
+  const arrow = document.createElement('a');
+  arrow.className = 'report-card-arrow';
+  arrow.href = '/report?path=' + encodeURIComponent(reportPath);
+  arrow.textContent = '→';
+  card.appendChild(arrow);
+
+  // After a short pause, slide the temp card out, then swap in the real card
+  setTimeout(() => {
+    card.classList.add('report-card-exit');
+    card.addEventListener('animationend', () => {
+      loadReports(reportPath);
+    }, { once: true });
+  }, 1200);
+
+  updateAnalyzeBtn();
 }
 
 function setJobError(jobKey, msg) {
-  const row = document.getElementById('job-' + jobKey);
-  if (!row) return;
-  row.className = 'job-row job-error';
-  row.querySelector('.job-icon').innerHTML = '&#10007;';
-  const statusEl = row.querySelector('.job-status');
-  statusEl.className = 'job-status status-error';
-  statusEl.textContent = msg;
+  const card = document.getElementById('job-' + jobKey);
+  if (!card) return;
+  card.classList.remove('job-cached');
+  card.classList.add('job-error');
+  card.querySelector('.report-card-thumb--job').innerHTML = '<span style="font-size:1.1rem;color:var(--red)">&#10007;</span>';
+
+  const meta = card.querySelector('.report-card-meta');
+  meta.innerHTML = `<span class="job-status-text status-error">${esc(msg)}</span>`;
 }
 
 // ── Analyze flow ──────────────────────────────────────────────────────────────
@@ -144,16 +243,16 @@ async function startAnalyze() {
   input.value = '';
 
   const jobKey = Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-  const urlDisplay = url.length > 45 ? url.slice(0, 42) + '…' : url;
-  const row = createJobRow(jobKey, urlDisplay);
-  _jobs.set(jobKey, {jobKey, url, status: 'running', el: row, reportPath: null});
+  const urlDisplay = url.length > 55 ? url.slice(0, 52) + '…' : url;
+  const card = createJobCard(jobKey, urlDisplay);
+  _jobs.set(jobKey, { jobKey, url, status: 'running', el: card, reportPath: null });
   updateAnalyzeBtn();
 
   try {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url}),
+      body: JSON.stringify({url, filters: getFilterSettings()}),
     });
     const data = await res.json();
 
@@ -186,21 +285,9 @@ async function startAnalyze() {
 function useCached(jobKey) {
   const job = _jobs.get(jobKey);
   if (!job || !job.reportPath) return;
+  job.filteredOut = 0;
   job.status = 'done';
-  const row = document.getElementById('job-' + jobKey);
-  const btns = row.querySelector('.job-cache-btns');
-  if (btns) btns.remove();
-  row.className = 'job-row job-done';
-  row.querySelector('.job-icon').innerHTML = '&#10003;';
-  const statusEl = row.querySelector('.job-status');
-  statusEl.className = 'job-status status-done';
-  statusEl.textContent = 'Done';
-  const link = document.createElement('a');
-  link.className = 'job-view-link';
-  link.href = '/report?path=' + encodeURIComponent(job.reportPath);
-  link.textContent = 'View →';
-  row.appendChild(link);
-  updateAnalyzeBtn();
+  setJobDone(jobKey, null, job.reportPath, 0);
 }
 
 async function fetchFresh(jobKey) {
@@ -208,20 +295,18 @@ async function fetchFresh(jobKey) {
   if (!job) return;
   const url = job.url;
   job.status = 'running';
-  const row = document.getElementById('job-' + jobKey);
-  row.className = 'job-row';
-  row.querySelector('.job-icon').innerHTML = '<div class="spinner"></div>';
-  const btns = row.querySelector('.job-cache-btns');
-  if (btns) btns.remove();
-  const statusEl = row.querySelector('.job-status');
-  statusEl.className = 'job-status';
-  statusEl.textContent = 'Starting fresh fetch…';
+
+  const card = document.getElementById('job-' + jobKey);
+  card.classList.remove('job-cached', 'job-done', 'job-error');
+  card.querySelector('.report-card-thumb--job').innerHTML = '<div class="spinner"></div>';
+  card.querySelector('.job-status-text').className = 'job-status-text';
+  card.querySelector('.job-status-text').textContent = 'Starting fresh fetch…';
 
   try {
     const res  = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, force: true}),
+      body: JSON.stringify({url, force: true, filters: getFilterSettings()}),
     });
     const data = await res.json();
     if (data.error) {
@@ -252,10 +337,8 @@ function streamProgress(jobKey, serverId) {
       }
       if (msg.msg) setJobRunning(jobKey, msg.msg);
       if (msg.done) {
-        const job = _jobs.get(jobKey);
-        if (job) { job.status = 'done'; job.reportPath = msg.report_path; }
-        setJobDone(jobKey, msg.title || null, msg.report_path);
-        es.close(); updateAnalyzeBtn(); loadReports(); updateQuotaDisplay();
+        setJobDone(jobKey, msg.title || null, msg.report_path, msg.filtered_out || 0);
+        es.close();
       }
     } catch (_) {}
   };
@@ -277,27 +360,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ── API Quota tracking ────────────────────────────────────────────────────────
-
-async function updateQuotaDisplay() {
-  try {
-    const res = await fetch('/api/quota');
-    const quota = await res.json();
-    const display = document.getElementById('quota-display');
-    if (display) {
-      display.textContent = `(${quota.used.toLocaleString()} / ${quota.limit.toLocaleString()} units)`;
-      display.classList.remove('quota-low', 'quota-critical');
-      if (quota.remaining < 2000) display.classList.add('quota-low');
-      if (quota.remaining < 500) display.classList.add('quota-critical');
-    }
-  } catch (e) {
-    console.error('Failed to fetch quota:', e);
-  }
-}
-
 // ── Initialization ─────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+  updateSortButtons();
   loadReports();
-  updateQuotaDisplay();
 });

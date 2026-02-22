@@ -5,7 +5,7 @@ async function loadNavCounts() {
     const res = await fetch('/api/counts');
     if (!res.ok) return;
     const counts = await res.json();
-    const map = { ideas: 'nav-count-ideas', blacklist: 'nav-count-blacklist', deleted: 'nav-count-deleted' };
+    const map = { aggregate: 'nav-count-aggregate', keep: 'nav-count-keep', blacklist: 'nav-count-blacklist', deleted: 'nav-count-deleted' };
     Object.entries(map).forEach(([key, id]) => {
       const el = document.getElementById(id);
       if (el) el.textContent = counts[key] ?? 0;
