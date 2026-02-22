@@ -1,3 +1,12 @@
+// ── Module state for interactivity ────────────────────────────────────────────
+
+let _sortCol = 'like_count';
+let _sortDir = 'desc';
+let _colPrefs = JSON.parse(localStorage.getItem('ytca_cols_report') || '{}');
+let _videoInfo = {};
+let _discardedCount = 0;
+let _keptCount = 0;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function esc(s) {
@@ -92,8 +101,12 @@ async function loadReport() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-function renderReport({ video_info, comments, phrases }) {
+function renderReport({ video_info, comments, phrases, discarded_count, kept_count }) {
   const vi = video_info || {};
+  _videoInfo = vi;
+  _discardedCount = discarded_count || 0;
+  _keptCount = kept_count || 0;
+
   const channel = String(vi.channel || '');
   const channelId = String(vi.channel_id || '');
 
@@ -109,6 +122,7 @@ function renderReport({ video_info, comments, phrases }) {
     : `<div class="video-thumb-placeholder">&#9654;</div>`;
 
   const uploadDate = formatDate(vi.upload_date);
+  const statsHtml = `<span class="comment-stats">${fmt(_discardedCount)} discarded · ${fmt(_keptCount)} kept</span>`;
 
   const html = `
     <!-- Video Info -->
@@ -130,17 +144,20 @@ function renderReport({ video_info, comments, phrases }) {
             <span><strong>Likes:</strong> ${fmt(vi.like_count)}</span>
             <span class="meta-sep">&bull;</span>
             <span><strong>Comments analysed:</strong> ${fmt(comments.length)}</span>
+            ${statsHtml}
             ${yt_url ? `<a href="${escAttr(yt_url)}" class="yt-link" target="_blank" rel="noopener">Watch on YouTube &#8599;</a>` : ''}
+            <button class="btn-desc-toggle" onclick="toggleDesc(this)">Show Description</button>
           </div>
-          <div class="desc">${esc((vi.description || '').slice(0, 1000))}</div>
+          <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
         </div>
       </div>
     </div>
 
     <!-- Tabs -->
     <div class="card">
+      ${buildColSelector(REPORT_COLS)}
       <div class="section-tabs">
-        <button class="tab active" onclick="showTab('top100', this)">Top 100 Liked</button>
+        <button class="tab active" onclick="showTab('top100', this)">Top Liked</button>
         <button class="tab" onclick="showTab('all', this)">All Comments</button>
         <button class="tab" onclick="showTab('phrases', this)">Repeated Phrases</button>
       </div>
@@ -149,7 +166,7 @@ function renderReport({ video_info, comments, phrases }) {
       <div id="pane-top100" class="tab-pane">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Author</th><th>Likes</th><th>Comment</th></tr></thead>
+            <thead><tr><th data-colname="actions">&#9829;/&#10005;</th><th data-colname="text" class="sortable" onclick="handleSortClick('text')">Comment</th><th data-colname="like_count" class="sortable" onclick="handleSortClick('like_count')">Likes</th><th data-colname="author" class="sortable" onclick="handleSortClick('author')">Author</th></tr></thead>
             <tbody id="top100-body"></tbody>
           </table>
         </div>
@@ -164,7 +181,7 @@ function renderReport({ video_info, comments, phrases }) {
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Author</th><th>Likes</th><th>Comment</th></tr></thead>
+            <thead><tr><th data-colname="actions">&#9829;/&#10005;</th><th data-colname="text" class="sortable" onclick="handleSortClick('text')">Comment</th><th data-colname="like_count" class="sortable" onclick="handleSortClick('like_count')">Likes</th><th data-colname="author" class="sortable" onclick="handleSortClick('author')">Author</th></tr></thead>
             <tbody id="all-body"></tbody>
           </table>
         </div>
@@ -188,7 +205,7 @@ function renderReport({ video_info, comments, phrases }) {
   document.getElementById('main-content').innerHTML = html;
 
   // Render Top 100
-  renderRows('top100-body', comments.slice(0, 100), 0, channel, channelId);
+  renderRows('top100-body', comments.slice(0, 100), 0, channel, channelId, REPORT_PATH);
 
   // Setup all-comments pagination
   _allComments = comments;
@@ -200,6 +217,9 @@ function renderReport({ video_info, comments, phrases }) {
   if (phrases && phrases.length) {
     renderPhrasesChart(phrases);
   }
+
+  // Update sort indicators
+  updateSortIndicators();
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -213,13 +233,18 @@ function showTab(id, btn) {
 
 // ── All comments pagination ───────────────────────────────────────────────────
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 100;
+const REPORT_COLS = [
+  {id: 'text',       label: 'Comment'},
+  {id: 'like_count', label: 'Likes'},
+  {id: 'author',     label: 'Author'},
+];
 let _allComments = [];
 let _channel = '';
 let _channelId = '';
 let _currentPage = 0;
 
-function renderRows(tbodyId, slice, offset, channel, channelId) {
+function renderRows(tbodyId, slice, offset, channel, channelId, reportPath = REPORT_PATH) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
   tbody.innerHTML = slice.map((c, i) => {
@@ -229,12 +254,15 @@ function renderRows(tbodyId, slice, offset, channel, channelId) {
       : (channel && String(c.author).trim() === channel.trim());
     const authorCls = isCreator ? 'col-author creator' : 'col-author';
     return `<tr>
-      <td class="rank">${rank}</td>
-      <td class="${authorCls}">${esc(c.author)}</td>
-      <td class="col-likes">${fmt(c.like_count)}</td>
-      <td class="col-text">${esc(c.text)}</td>
+      ${buildActionBtns(c, reportPath)}
+      <td class="col-text" data-colname="text">${esc(c.text)}</td>
+      <td class="col-likes" data-colname="like_count">${fmt(c.like_count)}</td>
+      <td class="${authorCls}" data-colname="author">${esc(c.author)}</td>
     </tr>`;
   }).join('');
+
+  // Apply column visibility
+  applyColVisibility();
 }
 
 function renderPage(page) {
@@ -253,6 +281,7 @@ function renderPage(page) {
   document.getElementById('pg-next').disabled  = atLast;
   document.getElementById('pg-next2').disabled = atLast;
   document.getElementById('pane-all').scrollIntoView({behavior: 'smooth', block: 'start'});
+  updateSortIndicators();
 }
 
 function changePage(delta) {
@@ -318,6 +347,162 @@ function renderPhrasesChart(phrases) {
 function showError(msg) {
   document.getElementById('main-content').innerHTML =
     `<div class="error-msg">${msg}</div>`;
+}
+
+// ── Description toggle ───────────────────────────────────────────────────────
+
+function toggleDesc(btn) {
+  const el = document.getElementById('video-desc');
+  const visible = el.classList.toggle('visible');
+  btn.textContent = visible ? 'Hide Description' : 'Show Description';
+}
+
+// ── Action buttons and persistence ────────────────────────────────────────────
+
+function buildActionBtns(comment, reportPath) {
+  return `
+    <td class="col-actions" data-colname="actions">
+      <button class="btn-action btn-keep" onclick="actionKeep(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">♥</button>
+      <button class="btn-action btn-discard" onclick="actionDiscard(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">✕</button>
+    </td>
+  `;
+}
+
+function animateRowOut(tr) {
+  tr.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
+  tr.style.opacity = '0';
+  tr.style.transform = 'translateX(-12px)';
+  tr.style.pointerEvents = 'none';
+  setTimeout(() => {
+    Array.from(tr.cells).forEach(td => {
+      td.style.transition = 'padding 0.15s ease, line-height 0.15s ease';
+      td.style.paddingTop = '0';
+      td.style.paddingBottom = '0';
+      td.style.lineHeight = '0';
+      td.style.overflow = 'hidden';
+    });
+    setTimeout(() => tr.remove(), 160);
+  }, 230);
+}
+
+async function actionKeep(evt, btn, commentId, reportPath) {
+  evt.stopPropagation();
+  const comment = findComment(commentId);
+  if (!comment) return;
+
+  // Attach report context
+  comment._reportPath = reportPath;
+  comment._reportTitle = _videoInfo.title || reportPath;
+  comment._thumbnail = _videoInfo.thumbnail || '';
+
+  try {
+    await fetch('/api/comment/keep', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({comment}),
+    });
+    animateRowOut(btn.closest('tr'));
+  } catch (e) {
+    console.error('Failed to keep comment:', e);
+  }
+}
+
+async function actionDiscard(evt, btn, commentId, reportPath) {
+  evt.stopPropagation();
+  try {
+    await fetch('/api/comment/discard', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({comment_id: commentId, report_path: reportPath}),
+    });
+    // Remove from memory
+    const idx = _allComments.findIndex(c => c.id === commentId);
+    if (idx >= 0) _allComments.splice(idx, 1);
+    animateRowOut(btn.closest('tr'));
+  } catch (e) {
+    console.error('Failed to discard comment:', e);
+  }
+}
+
+function findComment(id) {
+  return _allComments.find(c => c.id === id);
+}
+
+// ── Sorting ────────────────────────────────────────────────────────────────────
+
+function handleSortClick(colName) {
+  if (_sortCol === colName) {
+    _sortDir = _sortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _sortCol = colName;
+    _sortDir = 'desc';
+  }
+
+  // Re-sort comments
+  _allComments.sort((a, b) => {
+    let aVal = a[_sortCol] ?? '';
+    let bVal = b[_sortCol] ?? '';
+
+    if (typeof aVal === 'string' || typeof bVal === 'string') {
+      aVal = String(aVal); bVal = String(bVal);
+      return _sortDir === 'desc' ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
+    }
+
+    aVal = Number(aVal) || 0;
+    bVal = Number(bVal) || 0;
+    return _sortDir === 'desc' ? bVal - aVal : aVal - bVal;
+  });
+
+  renderPage(0);
+}
+
+// ── Sort state indicators ────────────────────────────────────────────────────────
+
+function updateSortIndicators() {
+  document.querySelectorAll('th.sort-active').forEach(th => {
+    th.classList.remove('sort-active', 'sort-asc');
+  });
+  const active = document.querySelector(`th[data-colname="${_sortCol}"]`);
+  if (active) {
+    active.classList.add('sort-active');
+    if (_sortDir === 'asc') active.classList.add('sort-asc');
+  }
+}
+
+// ── Column visibility ──────────────────────────────────────────────────────────
+
+function buildColSelector(cols) {
+  const checkboxes = cols
+    .filter(c => c.id !== 'actions') // Always show actions
+    .map(c => `
+      <label>
+        <input type="checkbox" data-col="${c.id}" ${_colPrefs[c.id] !== false ? 'checked' : ''}
+          onchange="toggleColVisibility('${c.id}', this.checked)">
+        ${c.label}
+      </label>
+    `).join('');
+
+  return `
+    <div class="col-selector">
+      <span class="col-selector-label">Columns:</span>
+      ${checkboxes}
+    </div>
+  `;
+}
+
+function toggleColVisibility(colName, visible) {
+  _colPrefs[colName] = visible;
+  localStorage.setItem('ytca_cols_report', JSON.stringify(_colPrefs));
+  applyColVisibility();
+}
+
+function applyColVisibility() {
+  Object.entries(_colPrefs).forEach(([col, visible]) => {
+    const display = visible ? '' : 'none';
+    document.querySelectorAll(`[data-colname="${col}"]`).forEach(el => {
+      el.style.display = display;
+    });
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

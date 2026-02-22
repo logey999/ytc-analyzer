@@ -3,7 +3,43 @@
 body {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Top panel nav (tabs) ─────────────────────────────────────────────────── */
+
+.panel-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+  height: 44px;
+}
+
+.tab-count {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-family: 'DM Mono', monospace;
+  font-weight: 400;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 1px 7px;
+  letter-spacing: 0;
+  margin-left: 5px;
+  vertical-align: middle;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.panel-tab.active .tab-count {
+  background: rgba(255,45,45,0.12);
+  border-color: rgba(255,45,45,0.3);
+  color: var(--red);
 }
 
 .dashboard {
@@ -11,7 +47,6 @@ body {
   flex: 1;
   gap: 0;
   overflow: hidden;
-  height: calc(100vh - 73px);
 }
 
 /* ── Left sidebar ─────────────────────────────────────────────────────────── */
@@ -64,6 +99,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.analyze-hint {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  margin: 0;
+  font-weight: 400;
 }
 
 .url-input {
@@ -284,13 +326,12 @@ body {
   overflow: hidden;
 }
 
-.reports-header {
-  padding: 14px 28px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
+/* When sidebar is hidden (aggregate/ideas/blacklist view), constrain content to 90% */
+.reports-panel.panel-fullwidth .reports-list {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 90%;
 }
 
 .panel-tab {
@@ -301,10 +342,11 @@ body {
   font-weight: 700;
   color: var(--text-3);
   cursor: pointer;
-  padding: 4px 2px;
+  padding: 12px 8px;
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .panel-tab:hover {
@@ -314,16 +356,6 @@ body {
 .panel-tab.active {
   color: var(--text);
   border-bottom-color: var(--red);
-}
-
-.reports-count {
-  font-size: 0.72rem;
-  font-family: 'DM Mono', monospace;
-  color: var(--text-3);
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2px 10px;
 }
 
 .reports-list {
@@ -548,15 +580,211 @@ tbody tr:hover { background: var(--bg-3); }
   text-align: center;
 }
 
+/* ── Action buttons for comments ──────────────────────────────────────────── */
+
+.col-actions {
+  width: 100px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn-action:hover {
+  transform: translateY(-1px);
+}
+
+/* lightbulb → Ideas */
+.btn-keep {
+  background: rgba(251,191,36,0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,0.35);
+}
+
+.btn-keep:hover {
+  background: rgba(251,191,36,0.28);
+  border-color: rgba(251,191,36,0.6);
+}
+
+/* 🚫 → Blacklist */
+.btn-blacklist {
+  background: rgba(255,45,45,0.18);
+  color: #ff2d2d;
+  border: 1px solid rgba(255,45,45,0.38);
+}
+
+.btn-blacklist:hover {
+  background: rgba(255,45,45,0.3);
+  border-color: rgba(255,45,45,0.6);
+}
+
+/* 🗑️ → Deleted */
+.btn-delete {
+  background: rgba(251,191,36,0.12);
+  color: #d97706;
+  border: 1px solid rgba(217,119,6,0.35);
+}
+
+.btn-delete:hover {
+  background: rgba(217,119,6,0.22);
+  border-color: rgba(217,119,6,0.6);
+}
+
+/* 🗑️ permanently remove (in Deleted tab) */
+.btn-delete-perm {
+  background: rgba(255,45,45,0.12);
+  color: #ff6b6b;
+  border: 1px solid rgba(255,45,45,0.3);
+}
+
+.btn-delete-perm:hover {
+  background: rgba(255,45,45,0.22);
+  border-color: rgba(255,45,45,0.55);
+}
+
+/* ── Column selector ──────────────────────────────────────────────────────── */
+
+.col-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 7px 12px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  flex-wrap: wrap;
+}
+
+.col-selector-label {
+  font-weight: 600;
+  color: var(--text-2);
+  margin-right: 8px;
+}
+
+.col-selector label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 0.72rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.col-selector input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--red);
+}
+
+/* ── Sortable headers ─────────────────────────────────────────────────────── */
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+  position: relative;
+  padding-right: 18px;
+}
+
+th.sortable:hover {
+  color: var(--text-2);
+}
+
+th.sort-active {
+  color: var(--red);
+}
+
+th.sort-active::after {
+  content: '↓';
+  position: absolute;
+  right: 4px;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+th.sort-active.sort-asc::after {
+  content: '↑';
+}
+
+/* ── Row animation ────────────────────────────────────────────────────────── */
+
+tbody tr {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+tbody tr.removing {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+
+/* ── Quota display ────────────────────────────────────────────────────────────── */
+
+.quota-badge {
+  font-size: 0.7rem;
+  color: var(--text-3);
+  font-family: 'DM Mono', monospace;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.03);
+}
+
+.quota-badge.quota-low {
+  color: var(--yellow);
+  background: rgba(255,193,7,0.1);
+}
+
+.quota-badge.quota-critical {
+  color: var(--red);
+  background: rgba(255,45,45,0.1);
+}
+
+.quota-inline {
+  font-size: 0.6rem;
+  font-weight: 400;
+  font-family: 'DM Mono', monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-3);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.quota-inline.quota-low  { color: var(--yellow); }
+.quota-inline.quota-critical { color: var(--red); }
+
 @media (max-width: 700px) {
+  body {
+    height: auto;
+    overflow: visible;
+  }
   .dashboard {
     flex-direction: column;
-    height: auto;
     overflow: visible;
   }
   .sidebar {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border);
+  }
+  .panel-nav {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 6px 12px;
   }
 }

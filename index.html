@@ -17,6 +17,14 @@
   </div>
 </header>
 
+<nav class="panel-nav">
+  <button class="panel-tab active" id="ptab-reports"   onclick="switchPanel('reports')">Reports <span class="tab-count" id="reports-count">—</span></button>
+  <button class="panel-tab"        id="ptab-aggregate" onclick="switchPanel('aggregate')">Aggregate <span class="tab-count" id="agg-count">—</span></button>
+  <button class="panel-tab"        id="ptab-ideas"     onclick="switchPanel('ideas')">Ideas <span class="tab-count" id="ideas-count">—</span></button>
+  <button class="panel-tab"        id="ptab-blacklist" onclick="switchPanel('blacklist')">Blacklist <span class="tab-count" id="blacklist-count">—</span></button>
+  <button class="panel-tab"        id="ptab-deleted"   onclick="switchPanel('deleted')">Deleted <span class="tab-count" id="deleted-count">—</span></button>
+</nav>
+
 <div class="dashboard">
 
   <!-- ── LEFT SIDEBAR ──────────────────────────────────────────────────────── -->
@@ -24,7 +32,7 @@
     <div class="sidebar-inner">
 
       <div>
-        <div class="sidebar-section-label">Analyze Video</div>
+        <div class="sidebar-section-label">Analyze Video<span id="quota-display" class="quota-inline"></span></div>
         <div class="url-form">
           <input
             id="url-input"
@@ -37,6 +45,7 @@
           <button id="analyze-btn" class="btn btn-primary" onclick="startAnalyze()">
             &#9654;&nbsp; Analyze
           </button>
+          <p class="analyze-hint">Multiple videos can be analyzed simultaneously.</p>
         </div>
       </div>
 
@@ -51,11 +60,6 @@
 
   <!-- ── REPORTS PANEL ─────────────────────────────────────────────────────── -->
   <div class="reports-panel">
-    <div class="reports-header">
-      <button class="panel-tab active" id="ptab-reports" onclick="switchPanel('reports')">Reports</button>
-      <button class="panel-tab" id="ptab-aggregate" onclick="switchPanel('aggregate')">Aggregate</button>
-      <span class="reports-count" id="reports-count">—</span>
-    </div>
 
     <!-- Reports list pane -->
     <div id="panel-reports" class="reports-list">
@@ -66,6 +70,22 @@
     <div id="panel-aggregate" class="reports-list" style="display:none">
       <div class="reports-empty" id="agg-empty">Click "Aggregate" to load all comments across every report.</div>
     </div>
+
+    <!-- Ideas pane -->
+    <div id="panel-ideas" class="reports-list" style="display:none">
+      <div class="reports-empty">Click "Ideas" to load your curated comments.</div>
+    </div>
+
+    <!-- Blacklist pane -->
+    <div id="panel-blacklist" class="reports-list" style="display:none">
+      <div class="reports-empty">Click "Blacklist" to load discarded comments.</div>
+    </div>
+
+    <!-- Deleted pane -->
+    <div id="panel-deleted" class="reports-list" style="display:none">
+      <div class="reports-empty">Click "Deleted" to load trashed comments.</div>
+    </div>
+
   </div>
 
 </div>

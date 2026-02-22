@@ -141,10 +141,14 @@ def _fetch_video_info(youtube, video_id: str) -> dict:
     }
 
 
-def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> list[dict]:
-    """Paginate through all comments (top-level + replies) for a video."""
+def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[dict], int]:
+    """Paginate through all comments (top-level + replies) for a video.
+
+    Returns (all_comments, units_used)
+    """
     all_comments = []
     page_token = None
+    units = 0
 
     while True:
         request = youtube.commentThreads().list(
@@ -157,6 +161,7 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> list[dict]:
 
         try:
             response = _api_request_with_retry(request)
+            units += 1  # commentThreads.list costs 1 unit
         except HttpError as e:
             if e.resp.status == 403:
                 reason = ""
@@ -164,11 +169,11 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> list[dict]:
                     reason = e.error_details[0].get("reason", "")
                 if reason == "commentsDisabled":
                     print("  Comments are disabled for this video.")
-                    return []
+                    return [], units
                 if reason == "quotaExceeded" or "quota" in str(e).lower():
                     print("  YouTube API quota exceeded. Quota resets at midnight Pacific Time.")
                     print("  Please try again later.")
-                    return []
+                    return [], units
             raise
 
         for item in response.get("items", []):
@@ -195,6 +200,7 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> list[dict]:
             if reply_count > 5 and len(replies_in_thread) < reply_count:
                 # Fetch all replies via comments.list
                 _fetch_all_replies(youtube, top["id"], all_comments)
+                units += 1  # comments.list costs 1 unit per request
             else:
                 for reply in replies_in_thread:
                     r_snippet = reply["snippet"]
@@ -218,7 +224,7 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> list[dict]:
         if not page_token:
             break
 
-    return all_comments
+    return all_comments, units
 
 
 def _fetch_all_replies(youtube, parent_id: str, all_comments: list) -> None:
@@ -263,7 +269,7 @@ def _iso_to_unix(iso_str: str) -> int:
         return 0
 
 
-def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame]:
+def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame, int]:
     """
     Fetch all comments and metadata for a YouTube video.
 
@@ -272,9 +278,10 @@ def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame]:
         on_progress: Optional callback(msg: str) for progress updates.
 
     Returns:
-        (video_info, df)
-        video_info — dict with title, channel, view_count, etc.
-        df         — DataFrame with columns: id, author, text, like_count, timestamp, parent
+        (video_info, df, units_used)
+        video_info   — dict with title, channel, view_count, etc.
+        df           — DataFrame with columns: id, author, text, like_count, timestamp, parent
+        units_used   — YouTube API units consumed (approximate)
     """
     video_id = _extract_video_id(url)
     youtube = _build_youtube_client()
@@ -291,12 +298,12 @@ def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame]:
         on_progress("Fetching comments...")
     else:
         print("  Fetching comments...")
-    comments = _fetch_all_comments(youtube, video_id, on_progress=on_progress)
+    comments, units = _fetch_all_comments(youtube, video_id, on_progress=on_progress)
 
     df = pd.DataFrame(comments) if comments else pd.DataFrame(
         columns=["id", "author", "text", "like_count", "timestamp", "parent"]
     )
-    return video_info, df
+    return video_info, df, units
 
 
 if __name__ == "__main__":
