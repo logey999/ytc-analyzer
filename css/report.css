@@ -114,6 +114,86 @@ header .subtitle {
   letter-spacing: 0.04em;
 }
 
+/* ── HEADER NAV (shared across all pages) ────────────────────────────────── */
+
+.header-link {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  text-decoration: none;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.header-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.header-nav a:hover {
+  background: var(--bg-3);
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+.header-nav a.active {
+  background: var(--card-2);
+  color: var(--text);
+  border-color: var(--border-2);
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 0.65rem;
+  font-family: 'DM Mono', monospace;
+  font-weight: 500;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.header-nav a.active .nav-badge {
+  background: rgba(255,45,45,0.15);
+  border-color: rgba(255,45,45,0.3);
+  color: var(--red);
+}
+
+.header-nav a:hover .nav-badge {
+  color: var(--text-2);
+}
+
+.header-nav .nav-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
 /* ── LAYOUT ──────────────────────────────────────────────────────────────── */
 
 .container {

@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Report — ytc-analyzer</title>
 <link rel="stylesheet" href="/css/report.css">
+<link rel="stylesheet" href="/css/tables.css">
+<link rel="stylesheet" href="/css/buttons.css">
+<link rel="stylesheet" href="/css/pagination.css">
+<link rel="stylesheet" href="/css/animations.css">
 <link rel="stylesheet" href="/css/report-page.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/js/config.js"></script>
+<script src="/js/utils.js"></script>
 </head>
 <body>
 
@@ -19,6 +25,12 @@
     </div>
   </a>
   <nav class="header-nav">
+    <a href="/">Dashboard</a>
+    <a href="/aggregate">Aggregate</a>
+    <a href="/ideas">Keep <span class="nav-badge" id="nav-count-ideas">0</span></a>
+    <a href="/blacklist">Blacklist <span class="nav-badge" id="nav-count-blacklist">0</span></a>
+    <a href="/deleted">Deleted <span class="nav-badge" id="nav-count-deleted">0</span></a>
+    <span class="nav-sep"></span>
     <button class="nav-btn disabled" id="btn-prev" onclick="navigate('prev')">&#8592; Prev</button>
     <button class="nav-btn disabled" id="btn-next" onclick="navigate('next')">Next &#8594;</button>
   </nav>

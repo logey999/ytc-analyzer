@@ -1,0 +1,101 @@
+/* ── Form Styles ──────────────────────────────────────────────────────────────── */
+
+/* ── URL input form ───────────────────────────────────────────────────────────── */
+
+.url-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.url-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  background: var(--bg-1);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.1);
+}
+
+.url-input::placeholder {
+  color: var(--text-3);
+}
+
+/* ── Analyze hint text ───────────────────────────────────────────────────────── */
+
+.analyze-hint {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ── Input field styling ──────────────────────────────────────────────────────── */
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+textarea,
+select {
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+/* ── Checkbox styling ──────────────────────────────────────────────────────── */
+
+input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--cyan);
+}
+
+input[type="checkbox"]:focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* ── Form groups ──────────────────────────────────────────────────────────── */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.form-error {
+  font-size: 0.75rem;
+  color: #ff6b6b;
+  margin-top: 2px;
+}
+
+.form-help {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  margin-top: 2px;
+}

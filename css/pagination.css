@@ -1,0 +1,69 @@
+/* ── Pagination Styles ────────────────────────────────────────────────────────── */
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.pagination-bar:first-of-type {
+  border-top: 1px solid var(--border);
+}
+
+.pg-info {
+  font-size: 0.8rem;
+  color: var(--text-3);
+  font-family: 'DM Mono', monospace;
+  flex: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.pg-btn {
+  padding: 6px 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.pg-btn:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--cyan);
+  color: var(--text-1);
+}
+
+.pg-btn:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.pg-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--border-2);
+}
+
+/* ── Aggregate toolbar (custom pagination bar) ─────────────────────────────── */
+
+.agg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.agg-toolbar .pg-info {
+  flex: 1;
+}

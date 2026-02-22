@@ -1,0 +1,269 @@
+/* ── Button Styles ────────────────────────────────────────────────────────────── */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Primary buttons ──────────────────────────────────────────────────────────── */
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-primary {
+  background: var(--cyan);
+  color: var(--bg-1);
+  border: 1px solid var(--cyan);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--cyan-bright);
+  border-color: var(--cyan-bright);
+}
+
+.btn-primary:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--text-2);
+}
+
+.btn-secondary:active:not(:disabled) {
+  opacity: 0.8;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Small buttons ───────────────────────────────────────────────────────────── */
+
+.btn-xs {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.btn-xs-primary {
+  background: var(--cyan);
+  color: var(--bg-1);
+  border: 1px solid var(--cyan);
+}
+
+.btn-xs-primary:hover:not(:disabled) {
+  background: var(--cyan-bright);
+  border-color: var(--cyan-bright);
+}
+
+.btn-xs-secondary {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+}
+
+.btn-xs-secondary:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--text-2);
+}
+
+/* ── Action buttons (table row buttons) ──────────────────────────────────────── */
+
+.btn-action {
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  background: transparent;
+}
+
+.btn-action:hover {
+  background: var(--bg-2);
+  border-color: var(--border);
+}
+
+.btn-action:active {
+  opacity: 0.7;
+}
+
+.btn-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-keep {
+  color: #ffa500;
+}
+
+.btn-keep:hover {
+  background: rgba(255, 165, 0, 0.1);
+  border-color: rgba(255, 165, 0, 0.3);
+}
+
+.btn-blacklist {
+  color: #ff6b6b;
+}
+
+.btn-blacklist:hover {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.btn-delete {
+  color: #ff6b6b;
+}
+
+.btn-delete:hover {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.btn-delete-perm {
+  color: #ff3333;
+  font-weight: 600;
+}
+
+.btn-delete-perm:hover {
+  background: rgba(255, 51, 51, 0.15);
+  border-color: rgba(255, 51, 51, 0.4);
+}
+
+.btn-discard {
+  color: #ff6b6b;
+}
+
+.btn-discard:hover {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+/* ── Navigation buttons ──────────────────────────────────────────────────────── */
+
+.nav-btn {
+  padding: 6px 12px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(.disabled) {
+  color: var(--text-1);
+  border-color: var(--cyan);
+  background: rgba(45, 212, 191, 0.05);
+}
+
+.nav-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Tab button styles ───────────────────────────────────────────────────────── */
+
+.tab {
+  padding: 8px 16px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab:hover {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab.active {
+  color: var(--cyan);
+  background: rgba(45, 212, 191, 0.1);
+  border-color: var(--cyan);
+}
+
+/* ── Panel tab styles ──────────────────────────────────────────────────────── */
+
+.panel-tab {
+  padding: 0 16px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.panel-tab:hover {
+  color: var(--text-1);
+}
+
+.panel-tab.active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+
+/* ── Toggle buttons ────────────────────────────────────────────────────────── */
+
+.btn-desc-toggle {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  background: var(--bg-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-desc-toggle:hover {
+  background: var(--bg-3);
+  color: var(--text-1);
+}

@@ -1,0 +1,81 @@
+/* ── Animation Styles ─────────────────────────────────────────────────────────── */
+
+/* ── Spinner animation ─────────────────────────────────────────────────────── */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* ── Row removal animation ──────────────────────────────────────────────────── */
+
+tbody tr.removing {
+  animation: removeRow 0.35s ease forwards;
+}
+
+@keyframes removeRow {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+    height: auto;
+  }
+  60% {
+    opacity: 0;
+    transform: translateX(-12px);
+    height: auto;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-12px);
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border: none;
+  }
+}
+
+/* ── Fade in animation ──────────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* ── Slide in animation ────────────────────────────────────────────────────── */
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}

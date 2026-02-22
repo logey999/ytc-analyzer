@@ -32,6 +32,7 @@ from analyze_video import (
     filter_low_value,
 )
 from create_report import find_repeated_phrases
+from comment_store import CommentStore
 from get_comments import get_comments
 
 # ── App setup ─────────────────────────────────────────────────────────────────
@@ -46,7 +47,12 @@ DISCARDED_PATH = os.path.join(PROJECT_ROOT, "Reports", "discarded.json")
 IDEAS_PATH     = os.path.join(PROJECT_ROOT, "Reports", "ideas.json")
 DELETED_PATH   = os.path.join(PROJECT_ROOT, "Reports", "deleted.json")
 QUOTA_PATH     = os.path.join(PROJECT_ROOT, "Reports", "quota.json")
-_store_lock = threading.Lock()
+_store_lock = threading.RLock()
+
+# Initialize CommentStore instances
+ideas_store = CommentStore(IDEAS_PATH, _store_lock)
+blacklist_store = CommentStore(DISCARDED_PATH, _store_lock)
+deleted_store = CommentStore(DELETED_PATH, _store_lock)
 
 # Job registry: job_id → {queue, status, report_path, title}
 _jobs: dict = {}
@@ -156,6 +162,26 @@ def route_index():
 @app.get("/report")
 def route_report():
     return send_file(os.path.join(PROJECT_ROOT, "report.html"))
+
+
+@app.get("/aggregate")
+def route_aggregate():
+    return send_file(os.path.join(PROJECT_ROOT, "aggregate.html"))
+
+
+@app.get("/ideas")
+def route_ideas():
+    return send_file(os.path.join(PROJECT_ROOT, "ideas.html"))
+
+
+@app.get("/blacklist")
+def route_blacklist():
+    return send_file(os.path.join(PROJECT_ROOT, "blacklist.html"))
+
+
+@app.get("/deleted")
+def route_deleted():
+    return send_file(os.path.join(PROJECT_ROOT, "deleted.html"))
 
 
 @app.get("/css/<path:filename>")
@@ -327,12 +353,8 @@ def api_report_data(report_path: str):
     df = filter_low_value(df_raw)
 
     # Load and filter out discarded comments
-    discarded = _load_json_store(DISCARDED_PATH, [])
-    if isinstance(discarded, list):
-        discard_ids = {c.get("id") for c in discarded if c.get("_reportPath") == report_path}
-    else:
-        # Legacy dict format fallback
-        discard_ids = set(discarded.get(report_path, []))
+    discarded = blacklist_store.all()
+    discard_ids = {c.get("id") for c in discarded if c.get("_reportPath") == report_path}
     total_discarded = len(discard_ids)
     if discard_ids and "id" in df.columns:
         df = df[~df["id"].isin(discard_ids)]
@@ -340,7 +362,7 @@ def api_report_data(report_path: str):
     df = df.sort_values("like_count", ascending=False).reset_index(drop=True)
 
     # Count kept comments from ideas store
-    ideas = _load_json_store(IDEAS_PATH, [])
+    ideas = ideas_store.all()
     total_kept = sum(1 for i in ideas if i.get("_reportPath") == report_path)
 
     phrases = find_repeated_phrases(df)
@@ -375,39 +397,20 @@ def api_comment_discard():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    with _store_lock:
-        discarded = _load_json_store(DISCARDED_PATH, [])
-        # Handle legacy dict format
-        if isinstance(discarded, dict):
-            discarded = []
-        existing_ids = {c.get("id") for c in discarded}
-        if comment["id"] not in existing_ids:
-            discarded.append(comment)
-            _save_json_store(DISCARDED_PATH, discarded)
-
+    blacklist_store.add(comment)
     return jsonify({"success": True})
 
 
 @app.get("/api/blacklist")
 def api_blacklist():
     """Fetch all discarded comments (blacklist)."""
-    with _store_lock:
-        discarded = _load_json_store(DISCARDED_PATH, [])
-        if isinstance(discarded, dict):
-            discarded = []
-    return jsonify(discarded)
+    return jsonify(blacklist_store.all())
 
 
 @app.delete("/api/blacklist/<comment_id>")
 def api_blacklist_delete(comment_id: str):
     """Remove a comment from the blacklist."""
-    with _store_lock:
-        discarded = _load_json_store(DISCARDED_PATH, [])
-        if isinstance(discarded, dict):
-            discarded = []
-        discarded = [c for c in discarded if c.get("id") != comment_id]
-        _save_json_store(DISCARDED_PATH, discarded)
-
+    blacklist_store.remove(comment_id)
     return jsonify({"success": True})
 
 
@@ -420,32 +423,20 @@ def api_comment_delete():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    with _store_lock:
-        deleted = _load_json_store(DELETED_PATH, [])
-        existing_ids = {c.get("id") for c in deleted}
-        if comment["id"] not in existing_ids:
-            deleted.append(comment)
-            _save_json_store(DELETED_PATH, deleted)
-
+    deleted_store.add(comment)
     return jsonify({"success": True})
 
 
 @app.get("/api/deleted")
 def api_deleted():
     """Fetch all comments in the Deleted bin."""
-    with _store_lock:
-        deleted = _load_json_store(DELETED_PATH, [])
-    return jsonify(deleted)
+    return jsonify(deleted_store.all())
 
 
 @app.delete("/api/deleted/<comment_id>")
 def api_deleted_delete(comment_id: str):
     """Permanently remove a comment from the Deleted bin."""
-    with _store_lock:
-        deleted = _load_json_store(DELETED_PATH, [])
-        deleted = [c for c in deleted if c.get("id") != comment_id]
-        _save_json_store(DELETED_PATH, deleted)
-
+    deleted_store.remove(comment_id)
     return jsonify({"success": True})
 
 
@@ -458,34 +449,31 @@ def api_comment_keep():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
-    with _store_lock:
-        ideas = _load_json_store(IDEAS_PATH, [])
-        # Deduplicate by id
-        existing_ids = set(i.get("id") for i in ideas)
-        if comment.get("id") not in existing_ids:
-            ideas.append(comment)
-            _save_json_store(IDEAS_PATH, ideas)
-
+    ideas_store.add(comment)
     return jsonify({"success": True})
 
 
 @app.get("/api/ideas")
 def api_ideas():
     """Fetch all kept comments from the Ideas collection."""
-    with _store_lock:
-        ideas = _load_json_store(IDEAS_PATH, [])
-    return jsonify(ideas)
+    return jsonify(ideas_store.all())
 
 
 @app.delete("/api/ideas/<comment_id>")
 def api_ideas_delete(comment_id: str):
     """Remove a comment from the Ideas collection."""
-    with _store_lock:
-        ideas = _load_json_store(IDEAS_PATH, [])
-        ideas = [i for i in ideas if i.get("id") != comment_id]
-        _save_json_store(IDEAS_PATH, ideas)
-
+    ideas_store.remove(comment_id)
     return jsonify({"success": True})
+
+
+@app.get("/api/counts")
+def api_counts():
+    """Return comment counts for each store (for nav badges)."""
+    return jsonify({
+        "ideas": len(ideas_store.all()),
+        "blacklist": len(blacklist_store.all()),
+        "deleted": len(deleted_store.all()),
+    })
 
 
 @app.get("/api/quota")
@@ -508,7 +496,7 @@ if __name__ == "__main__":
     os.makedirs(REPORTS_DIR, exist_ok=True)
     print()
     print("=" * 50)
-    print("  ytc-analyzer  →  http://localhost:5000")
+    print("  ytc-analyzer  ->  http://localhost:5000")
     print("=" * 50)
     print()
     app.run(host="0.0.0.0", port=5000, threaded=True, debug=False)

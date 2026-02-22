@@ -7,40 +7,8 @@ let _videoInfo = {};
 let _discardedCount = 0;
 let _keptCount = 0;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function escAttr(s) {
-  return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function fmt(n) {
-  const num = Number(n);
-  return isNaN(num) ? (n || 'N/A') : num.toLocaleString();
-}
-
-function secondsToHms(s) {
-  s = parseInt(s) || 0;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return h
-    ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
-    : `${m}:${String(sec).padStart(2,'0')}`;
-}
-
-function formatDate(d) {
-  if (!d) return 'N/A';
-  if (/^\d{8}$/.test(d)) return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6)}`;
-  return d;
-}
+// ── Helpers (now in js/utils.js) ───────────────────────────────────────────────
+// esc, escAttr, fmt, secondsToHms, formatDate, animateRowOut are all in js/utils.js
 
 // ── URL params ────────────────────────────────────────────────────────────────
 
@@ -86,7 +54,7 @@ async function loadReport() {
   }
 
   try {
-    const res = await fetch('/api/report-data/' + encodeURIComponent(REPORT_PATH));
+    const res = await fetch('/api/report-data/' + REPORT_PATH);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       showError(err.error || 'Failed to load report.');
@@ -125,32 +93,30 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
   const statsHtml = `<span class="comment-stats">${fmt(_discardedCount)} discarded · ${fmt(_keptCount)} kept</span>`;
 
   const html = `
-    <!-- Video Info -->
-    <div class="card">
-      <div class="card-title">Video Info</div>
-      <div class="video-card-inner">
-        ${thumbHtml}
-        <div class="video-info-body">
-          <p class="video-title">${esc(vi.title || '')}</p>
-          <div class="video-meta">
-            <span><strong>Channel:</strong> ${esc(channel || 'N/A')}</span>
-            <span class="meta-sep">&bull;</span>
-            <span><strong>Uploaded:</strong> ${esc(uploadDate)}</span>
-            <span class="meta-sep">&bull;</span>
-            <span><strong>Duration:</strong> ${esc(secondsToHms(vi.duration))}</span>
-            <span class="meta-sep">&bull;</span>
-            <span><strong>Views:</strong> ${fmt(vi.view_count)}</span>
-            <span class="meta-sep">&bull;</span>
-            <span><strong>Likes:</strong> ${fmt(vi.like_count)}</span>
-            <span class="meta-sep">&bull;</span>
-            <span><strong>Comments analysed:</strong> ${fmt(comments.length)}</span>
-            ${statsHtml}
-            ${yt_url ? `<a href="${escAttr(yt_url)}" class="yt-link" target="_blank" rel="noopener">Watch on YouTube &#8599;</a>` : ''}
-            <button class="btn-desc-toggle" onclick="toggleDesc(this)">Show Description</button>
-          </div>
-          <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
+    <!-- Video Info (compact) -->
+    <div class="video-strip">
+      ${vi.thumbnail ? `<img class="strip-thumb" src="${escAttr(vi.thumbnail)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+      <div class="strip-body">
+        <div class="strip-title">${esc(vi.title || REPORT_PATH)}</div>
+        <div class="strip-meta">
+          <span>${esc(channel || 'N/A')}</span>
+          <span class="meta-sep">&bull;</span>
+          <span>${esc(uploadDate)}</span>
+          <span class="meta-sep">&bull;</span>
+          <span>${esc(secondsToHms(vi.duration))}</span>
+          <span class="meta-sep">&bull;</span>
+          <span>${fmt(vi.view_count)} views</span>
+          <span class="meta-sep">&bull;</span>
+          <span>${fmt(vi.like_count)} likes</span>
+          <span class="meta-sep">&bull;</span>
+          <span>${fmt(comments.length)} comments · ${fmt(_discardedCount)} blacklisted · ${fmt(_keptCount)} kept</span>
         </div>
       </div>
+      <div class="strip-actions">
+        ${yt_url ? `<a href="${escAttr(yt_url)}" class="nav-btn" target="_blank" rel="noopener">Watch &#8599;</a>` : ''}
+        <button class="nav-btn" onclick="toggleDesc(this)">Description</button>
+      </div>
+      <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
     </div>
 
     <!-- Tabs -->
@@ -233,7 +199,7 @@ function showTab(id, btn) {
 
 // ── All comments pagination ───────────────────────────────────────────────────
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = CONFIG.ui.pageSize;
 const REPORT_COLS = [
   {id: 'text',       label: 'Comment'},
   {id: 'like_count', label: 'Likes'},
@@ -262,7 +228,7 @@ function renderRows(tbodyId, slice, offset, channel, channelId, reportPath = REP
   }).join('');
 
   // Apply column visibility
-  applyColVisibility();
+  applyColVisibilityReport();
 }
 
 function renderPage(page) {
@@ -286,6 +252,11 @@ function renderPage(page) {
 
 function changePage(delta) {
   renderPage(_currentPage + delta);
+}
+
+// Wrapper for backward compatibility
+function applyColVisibility() {
+  applyColVisibilityReport();
 }
 
 // ── Phrases chart (Chart.js) ──────────────────────────────────────────────────
@@ -362,8 +333,9 @@ function toggleDesc(btn) {
 function buildActionBtns(comment, reportPath) {
   return `
     <td class="col-actions" data-colname="actions">
-      <button class="btn-action btn-keep" onclick="actionKeep(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">♥</button>
-      <button class="btn-action btn-discard" onclick="actionDiscard(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">✕</button>
+      <button class="btn-action btn-keep" title="Keep" onclick="actionKeep(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">+</button>
+      <button class="btn-action btn-discard" title="Add to Blacklist" onclick="actionDiscard(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">🚫</button>
+      <button class="btn-action btn-delete" title="Move to Deleted" onclick="actionDelete(event, this, '${escAttr(comment.id)}', '${escAttr(reportPath)}')">🗑</button>
     </td>
   `;
 }
@@ -409,18 +381,43 @@ async function actionKeep(evt, btn, commentId, reportPath) {
 
 async function actionDiscard(evt, btn, commentId, reportPath) {
   evt.stopPropagation();
+  const comment = findComment(commentId);
+  if (!comment) return;
+  comment._reportPath = reportPath;
+  comment._reportTitle = _videoInfo.title || reportPath;
+  comment._thumbnail = _videoInfo.thumbnail || '';
   try {
     await fetch('/api/comment/discard', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({comment_id: commentId, report_path: reportPath}),
+      body: JSON.stringify({comment}),
     });
-    // Remove from memory
     const idx = _allComments.findIndex(c => c.id === commentId);
     if (idx >= 0) _allComments.splice(idx, 1);
     animateRowOut(btn.closest('tr'));
   } catch (e) {
     console.error('Failed to discard comment:', e);
+  }
+}
+
+async function actionDelete(evt, btn, commentId, reportPath) {
+  evt.stopPropagation();
+  const comment = findComment(commentId);
+  if (!comment) return;
+  comment._reportPath = reportPath;
+  comment._reportTitle = _videoInfo.title || reportPath;
+  comment._thumbnail = _videoInfo.thumbnail || '';
+  try {
+    await fetch('/api/comment/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({comment}),
+    });
+    const idx = _allComments.findIndex(c => c.id === commentId);
+    if (idx >= 0) _allComments.splice(idx, 1);
+    animateRowOut(btn.closest('tr'));
+  } catch (e) {
+    console.error('Failed to delete comment:', e);
   }
 }
 
@@ -471,6 +468,7 @@ function updateSortIndicators() {
 
 // ── Column visibility ──────────────────────────────────────────────────────────
 
+// Custom buildColSelector for report page (uses local _colPrefs)
 function buildColSelector(cols) {
   const checkboxes = cols
     .filter(c => c.id !== 'actions') // Always show actions
@@ -493,10 +491,10 @@ function buildColSelector(cols) {
 function toggleColVisibility(colName, visible) {
   _colPrefs[colName] = visible;
   localStorage.setItem('ytca_cols_report', JSON.stringify(_colPrefs));
-  applyColVisibility();
+  applyColVisibilityReport();
 }
 
-function applyColVisibility() {
+function applyColVisibilityReport() {
   Object.entries(_colPrefs).forEach(([col, visible]) => {
     const display = visible ? '' : 'none';
     document.querySelectorAll(`[data-colname="${col}"]`).forEach(el => {
