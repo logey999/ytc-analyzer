@@ -63,7 +63,7 @@ _jobs_lock = threading.Lock()
 _FILTER_BOOL_KEYS = frozenset({
     "min_chars", "min_alpha", "min_words",
     "emoji_only", "url_only", "timestamp_only",
-    "repeat_char", "english_only", "dedup",
+    "repeat_char", "blacklist_match", "english_only", "dedup",
 })
 
 
@@ -109,8 +109,17 @@ def _run_analysis(url: str, job_id: str) -> None:
 
         _send(q, {"msg": f"Saved {len(df_raw):,} comments to disk."})
 
+        # Build blacklist text set for fast O(1) matching (may be 10k+ items)
+        blacklist_texts: set = set()
+        if filter_kwargs.get("blacklist_match", True):
+            blacklist_texts = {
+                c.get("text", "").lower().strip()
+                for c in blacklist_store.all()
+                if c.get("text")
+            }
+
         # Auto-blacklist low-value comments using per-job filter settings
-        df_filtered = filter_low_value(df_raw, **filter_kwargs)
+        df_filtered = filter_low_value(df_raw, blacklist_texts=blacklist_texts, **filter_kwargs)
         df_low = df_raw[~df_raw["id"].isin(df_filtered["id"])]
         report_path = f"{channel_slug}/{slug}"
         if not df_low.empty:

@@ -128,38 +128,45 @@ def _near_dedup_remove_all(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
 
 def filter_low_value(
     df: pd.DataFrame,
-    # ── existing toggles ──────────────────────────────────────────────────
+    # ── vectorized string checks (fastest) ───────────────────────────────
     min_chars: bool = True,
     min_alpha: bool = True,
     min_words: bool = True,
-    # ── new toggles ───────────────────────────────────────────────────────
+    # ── per-row regex checks ──────────────────────────────────────────────
     emoji_only: bool = True,
     url_only: bool = True,
     timestamp_only: bool = True,
     repeat_char: bool = True,
+    # ── set-lookup against external store (fast O(n+m)) ──────────────────
+    blacklist_match: bool = True,
+    blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
+    # ── per-row ML inference (slow) ───────────────────────────────────────
     english_only: bool = True,
+    # ── pairwise comparison (slowest, O(n²)) ─────────────────────────────
     dedup: bool = True,
     dedup_threshold: int = 85,
 ) -> pd.DataFrame:
     """
     Remove empty, near-empty, and low-value comments.
+    Filters are ordered cheapest → most expensive to minimise rows processed
+    by later stages.
 
-    Toggle flags (all True = most aggressive filtering):
-        min_chars       — drop comments shorter than 3 characters
-        min_alpha       — drop comments with fewer than 2 letters
-        min_words       — drop comments with fewer than 3 words
-        emoji_only      — drop comments whose non-emoji content is empty/trivial
-        url_only        — drop comments whose non-URL content is empty/trivial
-        timestamp_only  — drop bare timestamps ("2:34", "1:23:45")
-        repeat_char     — drop comments with 5+ identical consecutive characters
-        english_only    — drop non-English comments (requires: langdetect)
-        dedup           — drop ALL copies of any exact or near-duplicate comment
-        dedup_threshold — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
+        min_chars        — drop comments shorter than 3 characters
+        min_alpha        — drop comments with fewer than 2 letters
+        min_words        — drop comments with fewer than 3 words
+        emoji_only       — drop comments whose non-emoji content is empty/trivial
+        url_only         — drop comments whose non-URL content is empty/trivial
+        timestamp_only   — drop bare timestamps ("2:34", "1:23:45")
+        repeat_char      — drop comments with 5+ identical consecutive characters
+        blacklist_match  — drop comments matching existing blacklist (requires: blacklist_texts set)
+        english_only     — drop non-English comments (requires: langdetect)
+        dedup            — drop ALL copies of any exact or near-duplicate comment
+        dedup_threshold  — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
     """
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
 
-    # ── cheap character-level filters first ───────────────────────────────
+    # ── 1. vectorized string length/content checks (O(n), no per-row call) ─
     if min_chars:
         df = df[df["text"].str.len() >= 3]
     if min_alpha:
@@ -167,25 +174,27 @@ def filter_low_value(
     if min_words:
         df = df[df["text"].str.split().str.len() >= 3]
 
-    # ── emoji-only: keep comment only if non-emoji content is non-trivial ─
+    # ── 2. per-row regex checks ────────────────────────────────────────────
     if emoji_only:
         stripped = df["text"].apply(_strip_emoji).str.strip()
         df = df[stripped.str.len() >= 2]
 
-    # ── url-only: keep comment only if non-URL content is non-trivial ─────
     if url_only:
         stripped = df["text"].apply(lambda t: _URL_RE.sub("", t)).str.strip()
         df = df[stripped.str.len() >= 2]
 
-    # ── timestamp-only: drop bare "2:34" / "1:23:45" comments ────────────
     if timestamp_only:
         df = df[~df["text"].apply(lambda t: bool(_TIMESTAMP_RE.fullmatch(t)))]
 
-    # ── repeat character: drop "lolololol", "!!!!!" etc. ─────────────────
     if repeat_char:
         df = df[~df["text"].apply(lambda t: bool(_REPEAT_CHAR_RE.search(t)))]
 
-    # ── english-only (slower — language detection per comment) ────────────
+    # ── 3. set-lookup against blacklist (O(n+m), vectorized isin) ──────────
+    if blacklist_match and blacklist_texts:
+        norm = df["text"].str.lower().str.strip()
+        df = df[~norm.isin(blacklist_texts)]
+
+    # ── 4. per-row language detection (slow — runs after cheap filters) ────
     if english_only:
         if _LANGDETECT_AVAILABLE:
             def _is_english(text: str) -> bool:
@@ -197,7 +206,7 @@ def filter_low_value(
         else:
             print("  [warn] english_only requires 'langdetect': pip install langdetect")
 
-    # ── dedup: exact then near-duplicate removal (slowest — runs last) ────
+    # ── 5. pairwise near-dup removal (O(n²) — must run last) ─────────────
     if dedup:
         # Exact duplicates (case-insensitive) — remove ALL copies, keep none
         norm = df["text"].str.lower().str.strip()

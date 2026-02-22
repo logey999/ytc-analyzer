@@ -8,6 +8,7 @@ const FILTER_DEFS = [
   { key: 'url_only',       label: 'URL / Link Only',     detail: 'Drop comments that are just a link',               default: true  },
   { key: 'timestamp_only', label: 'Timestamp Only',      detail: 'Drop bare timestamps like "2:34" or "1:23:45"',    default: true  },
   { key: 'repeat_char',    label: 'Repeated Characters', detail: 'Drop "lolololol", "!!!!!" and similar spam',       default: true  },
+  { key: 'blacklist_match', label: 'Known Blacklist',    detail: 'Auto-blacklist comments matching your existing blacklist', default: true },
   { key: 'english_only',   label: 'English Only',        detail: 'Drop non-English comments',                        default: true  },
   { key: 'dedup',          label: 'Remove Duplicates',   detail: 'Blacklist all copies of duplicate comments',        default: true  },
 ];
