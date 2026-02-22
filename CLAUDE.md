@@ -14,18 +14,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   ├── analyze_video.py      (Stage 2) Orchestration & CLI entry point
 │   ├── get_comments.py       (Stage 1) Comment fetching
 │   ├── create_report.py      (Stage 3) Report generation (self-contained HTML)
-│   └── server.py             Flask web server (dashboard entry point)
+│   ├── server.py             Flask web server (dashboard entry point)
+│   ├── comment_store.py      CommentStore class — Parquet-based persistence for keep/discarded/deleted
+│   └── api_reports.py        Example Blueprint organization (not yet wired into server.py)
 ├── Reports/                  Output folder (created automatically)
+│   ├── keep.parquet          Persisted "keep" comments (cross-report)
+│   ├── discarded.parquet     Persisted discarded comments
+│   └── deleted.parquet       Persisted deleted comments
 ├── css/
-│   ├── report.css           Shared dark-theme styles (used by server pages + HTML reports)
-│   ├── dashboard.css        Dashboard-specific styling
-│   └── report-page.css      Report page styling
+│   ├── report.css            Shared dark-theme base styles
+│   ├── dashboard.css         Dashboard-specific layout
+│   ├── report-page.css       Report viewer page
+│   ├── tables.css            All table styles (shared across pages)
+│   ├── buttons.css           Button styles
+│   ├── pagination.css        Pagination controls
+│   ├── animations.css        Spinner, row removal, fade-in
+│   ├── forms.css             Input/form styles
+│   └── filter-settings.css   Filter panel styles
 ├── js/
-│   ├── dashboard.js         Dashboard frontend logic
-│   └── report.js            Report viewer frontend logic
-├── index.html               Dashboard — URL entry, progress, report list
-├── report.html              Report viewer — video info, tabs, Chart.js phrases chart
-├── .env.example             Template for API key configuration
+│   ├── utils.js              Shared helpers (esc, escAttr, animateRowOut, _sortCmp, etc.)
+│   ├── config.js             Centralized CONFIG object (page sizes, column defs, API paths)
+│   ├── event-bus.js          Pub/sub event emitter for cross-component communication
+│   ├── table-manager.js      Unified TableManager class used by all comment table pages
+│   ├── dashboard.js          Dashboard page logic (job submission, report list)
+│   ├── report.js             Report viewer logic (phrases chart, top comments, nav)
+│   ├── aggregate.js          Aggregate page (all comments across reports)
+│   ├── keep.js               Keep page
+│   ├── blacklist.js          Blacklist/discard page
+│   ├── deleted.js            Deleted comments page
+│   └── filter-settings.js    Filter settings panel
+├── index.html                Dashboard — URL entry, job queue, report list
+├── report.html               Report viewer — video info, tabs, Chart.js phrases chart
+├── aggregate.html            Aggregate comments across reports
+├── keep.html                 Saved/kept comments
+├── blacklist.html            Discarded/blacklisted comments
+├── deleted.html              Deleted comments
+├── .env.example              Template for API key configuration
 ├── requirements.txt
 └── CLAUDE.md
 ```
@@ -75,17 +99,34 @@ The project follows a **modular three-stage pipeline**:
   - Live progress updates: WebSocket-like polling for job status
   - Report list: Shows all generated reports with thumbnails, metadata, and quick links
   - Report navigation: Prev/Next buttons to browse between generated reports
-- **Frontend Stack:**
-  - `js/dashboard.js` — Handles job submission, queue management, report list rendering
-  - `js/report.js` — Handles report data loading and page navigation
+  - Cross-report comment management: Keep, discard, and delete comments across all reports
+  - Filter settings panel: Configurable column visibility and display options
+- **Multi-page Architecture:**
+  - `index.html` / `dashboard.js` — Job submission and report list
+  - `report.html` / `report.js` — Report viewer with phrases chart and top comments
+  - `aggregate.html` / `aggregate.js` — All comments aggregated across reports
+  - `keep.html` / `keep.js` — Saved/kept comments
+  - `blacklist.html` / `blacklist.js` — Discarded comments
+  - `deleted.html` / `deleted.js` — Deleted comments
+- **Shared Frontend Modules** (loaded by all pages):
+  - `js/utils.js` — `esc()`, `escAttr()`, `animateRowOut()`, `_sortCmp()`
+  - `js/config.js` — `CONFIG` object: page sizes, column definitions, API paths
+  - `js/event-bus.js` — Pub/sub emitter for cross-component communication
+  - `js/table-manager.js` — `TableManager` class used by all comment table pages
   - Chart.js for visualization (loaded via CDN)
+- **Comment Persistence (`CommentStore`):**
+  - `Scripts/comment_store.py` — Manages keep/discarded/deleted Parquet files
+  - Stored at `Reports/keep.parquet`, `Reports/discarded.parquet`, `Reports/deleted.parquet`
+  - Server uses a single `_store_lock` (RLock) for thread safety
 - **Backend Endpoints:**
   - `POST /api/analyze` — Submit a YouTube URL for analysis
   - `GET /api/reports` — Fetch list of all generated reports with metadata
   - `GET /api/report/<path>` — Fetch a specific report's data (JSON)
   - `GET /api/job/<job_id>` — Poll job status and progress
-  - `GET /css/<file>` — Serve CSS files
-  - `GET /js/<file>` — Serve JavaScript files
+  - `GET /api/keep`, `POST /api/keep`, `DELETE /api/keep` — Keep list CRUD
+  - `GET /api/discarded`, `POST /api/discard`, `DELETE /api/discard` — Discard list CRUD
+  - `GET /api/deleted`, `POST /api/delete`, `DELETE /api/delete` — Deleted list CRUD
+  - `GET /css/<file>`, `GET /js/<file>` — Serve static assets
   - `GET /report/<path>` — Serve generated HTML report files
 
 ## Data Flow
@@ -176,13 +217,13 @@ python Scripts/server.py
 
 ```bash
 # Create virtual environment
-python -m venv myenv
+python -m venv ytc-env
 
 # Activate (Windows)
-myenv\Scripts\activate
+ytc-env\Scripts\activate
 
 # Activate (macOS/Linux)
-source myenv/bin/activate
+source ytc-env/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
