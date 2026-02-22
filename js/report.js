@@ -132,7 +132,7 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
       <div id="pane-top100" class="tab-pane">
         <div class="table-wrap">
           <table>
-            <thead><tr><th data-colname="actions">&#9829;/&#10005;</th><th data-colname="text" class="sortable" onclick="handleSortClick('text')">Comment</th><th data-colname="like_count" class="sortable" onclick="handleSortClick('like_count')">Likes</th><th data-colname="author" class="sortable" onclick="handleSortClick('author')">Author</th></tr></thead>
+            <thead><tr><th class="col-actions" data-colname="actions">&#9829;/&#10005;</th><th class="col-text sortable" data-colname="text" onclick="handleSortClick('text')">Comment</th><th class="col-like_count sortable" data-colname="like_count" onclick="handleSortClick('like_count')">Likes</th><th class="col-author sortable" data-colname="author" onclick="handleSortClick('author')">Author</th></tr></thead>
             <tbody id="top100-body"></tbody>
           </table>
         </div>
@@ -147,7 +147,7 @@ function renderReport({ video_info, comments, phrases, discarded_count, kept_cou
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th data-colname="actions">&#9829;/&#10005;</th><th data-colname="text" class="sortable" onclick="handleSortClick('text')">Comment</th><th data-colname="like_count" class="sortable" onclick="handleSortClick('like_count')">Likes</th><th data-colname="author" class="sortable" onclick="handleSortClick('author')">Author</th></tr></thead>
+            <thead><tr><th class="col-actions" data-colname="actions">&#9829;/&#10005;</th><th class="col-text sortable" data-colname="text" onclick="handleSortClick('text')">Comment</th><th class="col-like_count sortable" data-colname="like_count" onclick="handleSortClick('like_count')">Likes</th><th class="col-author sortable" data-colname="author" onclick="handleSortClick('author')">Author</th></tr></thead>
             <tbody id="all-body"></tbody>
           </table>
         </div>
@@ -222,7 +222,7 @@ function renderRows(tbodyId, slice, offset, channel, channelId, reportPath = REP
     return `<tr>
       ${buildActionBtns(c, reportPath)}
       <td class="col-text" data-colname="text">${esc(c.text)}</td>
-      <td class="col-likes" data-colname="like_count">${fmt(c.like_count)}</td>
+      <td class="col-like_count" data-colname="like_count">${fmt(c.like_count)}</td>
       <td class="${authorCls}" data-colname="author">${esc(c.author)}</td>
     </tr>`;
   }).join('');

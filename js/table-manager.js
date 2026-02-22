@@ -118,8 +118,7 @@ class TableManager {
       <div class="table-wrap"><table>
         <thead>${theadHtml}</thead>
         <tbody>${rows}</tbody>
-      </table></div>
-      ${paginator}`;
+      </table></div>`;
 
     // Apply column visibility
     this.applyColVisibility();
@@ -147,7 +146,7 @@ class TableManager {
         const path = comment._reportPath;
         const title = comment._reportTitle || path;
         val = path
-          ? `<a href="/report?path=${encodeURIComponent(path)}" title="${escAttr(title)}">${esc(truncate(title, 28))}</a>`
+          ? `<a href="/report?path=${encodeURIComponent(path)}" title="${escAttr(title)}">↗</a>`
           : '—';
         return `<td class="col-${col.id}" data-colname="${col.id}">${val}</td>`;
       }
@@ -160,7 +159,7 @@ class TableManager {
     }).join('');
 
     return `<tr>
-      <td class="col-actions" data-colname="actions">${actions}</td>
+      <td class="col-actions" data-colname="actions"><div>${actions}</div></td>
       ${columns}
     </tr>`;
   }
@@ -168,13 +167,13 @@ class TableManager {
   // Build table head
   _buildTableHead() {
     const colHeaders = this.config.columns.map(col => `
-      <th data-colname="${col.id}" class="sortable" onclick="__tableManagers['${this.config.panelId}'].sort('${col.id}')">
+      <th data-colname="${col.id}" class="col-${col.id} sortable" onclick="__tableManagers['${this.config.panelId}'].sort('${col.id}')">
         ${col.label}
       </th>
     `).join('');
 
     return `<tr>
-      <th data-colname="actions"></th>
+      <th class="col-actions" data-colname="actions"></th>
       ${colHeaders}
     </tr>`;
   }

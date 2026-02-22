@@ -128,12 +128,12 @@ button {
 }
 
 .btn-keep {
-  color: #ffa500;
+  color: var(--green);
 }
 
 .btn-keep:hover {
-  background: rgba(255, 165, 0, 0.1);
-  border-color: rgba(255, 165, 0, 0.3);
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.3);
 }
 
 .btn-blacklist {

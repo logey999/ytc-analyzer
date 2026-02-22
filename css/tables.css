@@ -1,8 +1,19 @@
 /* ── Table Styles ─────────────────────────────────────────────────────────────── */
 
+/* Panel containers rendered by TableManager */
+#main-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .table-wrap {
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
   border-radius: 0;
 }
 
@@ -11,6 +22,7 @@ table {
   border-collapse: collapse;
   font-size: 0.875rem;
   background: var(--bg-1);
+  table-layout: fixed;
 }
 
 thead {
@@ -84,14 +96,16 @@ th.sort-active.sort-asc::after {
 /* ── Column styles ─────────────────────────────────────────────────────────── */
 
 .col-rank {
-  width: 60px;
+  width: 48px;
+  min-width: 48px;
   text-align: center;
   color: var(--text-3);
   font-size: 0.8rem;
 }
 
 .col-author {
-  width: 160px;
+  width: 180px;
+  min-width: 180px;
   color: var(--text-2);
 }
 
@@ -100,39 +114,57 @@ th.sort-active.sort-asc::after {
   color: var(--cyan);
 }
 
-.col-likes {
-  width: 80px;
+.col-like_count {
+  width: 90px;
+  min-width: 90px;
   text-align: right;
   font-family: 'DM Mono', monospace;
   color: var(--text-2);
 }
 
 .col-text {
-  flex: 1;
-  min-width: 250px;
+  width: auto;
+  min-width: 300px;
   color: var(--text-1);
   line-height: 1.4;
 }
 
 .col-video {
-  width: 200px;
+  width: 48px;
+  min-width: 48px;
+  text-align: center;
   color: var(--text-2);
 }
 
 .col-video a {
   color: var(--cyan);
   text-decoration: none;
-  border-bottom: 1px solid rgba(45, 212, 191, 0.3);
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: background 0.2s ease;
 }
 
 .col-video a:hover {
-  border-bottom-color: var(--cyan);
+  background: rgba(45, 212, 191, 0.1);
 }
 
 .col-actions {
-  width: 90px;
-  padding: 8px 12px;
+  width: 120px;
+  min-width: 120px;
+  padding: 8px 6px;
   text-align: center;
+}
+
+.col-actions > div {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 /* ── Column selector ───────────────────────────────────────────────────────── */
