@@ -26,7 +26,7 @@ class CommentStore:
     def __init__(self, path: str, lock: Optional[threading.Lock] = None):
         """
         Args:
-            path: Full path to the Parquet file (e.g., 'Reports/keep.parquet')
+            path: Full path to the Parquet file (e.g., 'Reports/saved.parquet')
             lock: Optional threading.RLock for thread-safe operations
         """
         self.path = path

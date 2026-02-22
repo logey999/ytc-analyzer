@@ -3,7 +3,7 @@ get_comments.py — Fetch YouTube video comments and metadata using YouTube Data
 
 Usage as a module:
     from get_comments import get_comments
-    video_info, df = get_comments("https://youtu.be/...")
+    video_info, df, units_used = get_comments("https://youtu.be/...")
 
 Usage from the command line:
     python get_comments.py <youtube_url>
