@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ytc-analyzer</title>
+<link rel="stylesheet" href="/css/report.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+
+<header>
+  <div class="header-icon">&#9654;</div>
+  <div class="header-text">
+    <h1>ytc-analyzer</h1>
+    <span class="subtitle">YouTube Comment Analyzer</span>
+  </div>
+</header>
+
+<div class="dashboard">
+
+  <!-- ── LEFT SIDEBAR ──────────────────────────────────────────────────────── -->
+  <div class="sidebar">
+    <div class="sidebar-inner">
+
+      <div>
+        <div class="sidebar-section-label">Analyze Video</div>
+        <div class="url-form">
+          <input
+            id="url-input"
+            class="url-input"
+            type="text"
+            placeholder="https://youtube.com/watch?v=..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button id="analyze-btn" class="btn btn-primary" onclick="startAnalyze()">
+            &#9654;&nbsp; Analyze
+          </button>
+        </div>
+      </div>
+
+      <!-- Jobs list -->
+      <div id="jobs-area">
+        <div class="sidebar-section-label">Queue</div>
+        <div id="jobs-list"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── REPORTS PANEL ─────────────────────────────────────────────────────── -->
+  <div class="reports-panel">
+    <div class="reports-header">
+      <button class="panel-tab active" id="ptab-reports" onclick="switchPanel('reports')">Reports</button>
+      <button class="panel-tab" id="ptab-aggregate" onclick="switchPanel('aggregate')">Aggregate</button>
+      <span class="reports-count" id="reports-count">—</span>
+    </div>
+
+    <!-- Reports list pane -->
+    <div id="panel-reports" class="reports-list">
+      <div class="reports-empty">Loading reports…</div>
+    </div>
+
+    <!-- Aggregate pane -->
+    <div id="panel-aggregate" class="reports-list" style="display:none">
+      <div class="reports-empty" id="agg-empty">Click "Aggregate" to load all comments across every report.</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

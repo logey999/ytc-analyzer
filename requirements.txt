@@ -1,5 +1,7 @@
-yt-dlp
+google-api-python-client
+python-dotenv
 pandas
 pyarrow
 matplotlib
 vaderSentiment
+flask

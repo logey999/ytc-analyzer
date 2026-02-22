@@ -4,7 +4,7 @@ analyze_video.py — Master script for YouTube video comment analysis.
 
 Workflow:
     1. Ask user for a YouTube URL.
-    2. Create a subfolder named after the video ID.
+    2. Create a subfolder: Reports/{channel}/{video_title_slug}/
     3. Fetch comments (or reuse an existing Parquet file).
     4. Filter out low-value comments.
     5. Sort by like count and generate a self-contained HTML report.
@@ -13,6 +13,7 @@ Workflow:
 import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from urllib.parse import parse_qs, urlparse
@@ -32,17 +33,53 @@ def extract_video_id(url: str) -> str:
     return qs.get("v", ["video"])[0]
 
 
+def _slugify(text: str, max_len: int = None) -> str:
+    """Convert text to a safe folder/file name slug."""
+    slug = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    if max_len:
+        slug = slug[:max_len].rstrip("_")
+    return slug or "unknown"
+
+
+def _video_slug(title: str) -> str:
+    """First 10 characters of the slugified video title."""
+    return _slugify(title, max_len=10)
+
+
+def _channel_slug(channel: str) -> str:
+    return _slugify(channel)
+
+
 def filter_low_value(df: pd.DataFrame) -> pd.DataFrame:
     """Remove empty, near-empty, and non-alphabetic comments."""
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
     df = df[df["text"].str.len() >= 3]
     df = df[df["text"].str.count(r"[a-zA-Z]") >= 2]
+    df = df[df["text"].str.split().str.len() >= 3]
     return df
 
 
-def _find_latest_parquet(folder: str, video_id: str):
-    matches = glob.glob(os.path.join(folder, f"{video_id}_comments_*.parquet"))
+def _find_existing_report(reports_dir: str, video_id: str):
+    """
+    Scan all subfolders under reports_dir for an info.json whose 'id' matches
+    video_id. Returns (folder, info_path, video_info_dict) or (None, None, None).
+    """
+    for info_path in glob.glob(
+        os.path.join(reports_dir, "**", "*_info.json"), recursive=True
+    ):
+        try:
+            with open(info_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("id") == video_id:
+                return os.path.dirname(info_path), info_path, data
+        except Exception:
+            continue
+    return None, None, None
+
+
+def _find_latest_parquet(folder: str, slug: str):
+    matches = glob.glob(os.path.join(folder, f"{slug}_comments_*.parquet"))
     return max(matches) if matches else None
 
 
@@ -61,25 +98,25 @@ def main() -> None:
         print("No URL provided. Exiting.")
         sys.exit(1)
 
-    # Set up folder structure before fetching
     video_id = extract_video_id(url)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     reports_dir = os.path.join(project_root, "Reports")
-    folder = os.path.join(reports_dir, video_id)
-    os.makedirs(folder, exist_ok=True)
 
-    info_path = os.path.join(folder, f"{video_id}_info.json")
-    existing = _find_latest_parquet(folder, video_id)
+    # Check if we already have data for this video anywhere under Reports/
+    existing_folder, info_path, video_info = _find_existing_report(reports_dir, video_id)
 
     use_existing = False
-    if existing and os.path.exists(info_path):
-        existing_name = os.path.basename(existing)
-        row_count = len(pd.read_parquet(existing, columns=["id"]))
-        print(f"\n  Found existing comments: {existing_name} ({row_count:,} comments)")
-        print("  [1] Use existing file")
-        print("  [2] Fetch fresh comments from YouTube")
-        choice = input("  Choice [1]: ").strip()
-        use_existing = (choice != "2")
+    if existing_folder and info_path:
+        slug = _video_slug(video_info.get("title", video_id))
+        existing = _find_latest_parquet(existing_folder, slug)
+        if existing:
+            existing_name = os.path.basename(existing)
+            row_count = len(pd.read_parquet(existing, columns=["id"]))
+            print(f"\n  Found existing comments: {existing_name} ({row_count:,} comments)")
+            print("  [1] Use existing file")
+            print("  [2] Fetch fresh comments from YouTube")
+            choice = input("  Choice [1]: ").strip()
+            use_existing = (choice != "2")
 
     # Step 2 — Fetch or load comments
     if not use_existing:
@@ -93,18 +130,26 @@ def main() -> None:
         df_raw["like_count"] = (
             pd.to_numeric(df_raw["like_count"], errors="coerce").fillna(0).astype(int)
         )
-        df_raw["datetime"] = pd.to_datetime(df_raw["timestamp"], unit="s", errors="coerce")
+        df_raw["datetime"] = pd.to_datetime(df_raw["timestamp"], unit="s", utc=True, errors="coerce")
+
+        # Build folder: Reports/{channel_slug}/{video_slug}/
+        channel_slug = _channel_slug(video_info.get("channel") or "unknown")
+        slug = _video_slug(video_info.get("title") or video_id)
+        folder = os.path.join(reports_dir, channel_slug, slug)
+        os.makedirs(folder, exist_ok=True)
 
         date_str = datetime.now().strftime("%Y-%m-%d")
-        parquet_path = os.path.join(folder, f"{video_id}_comments_{date_str}.parquet")
+        info_path = os.path.join(folder, f"{slug}_info.json")
+        parquet_path = os.path.join(folder, f"{slug}_comments_{date_str}.parquet")
         df_raw.to_parquet(parquet_path, index=False)
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(video_info, f, ensure_ascii=False)
         print(f"[2/4] Comments saved to: {parquet_path}")
     else:
         print("\n[1/4] Loading existing comments…")
-        with open(info_path, "r", encoding="utf-8") as f:
-            video_info = json.load(f)
+        slug = _video_slug(video_info.get("title", video_id))
+        existing = _find_latest_parquet(existing_folder, slug)
+        folder = existing_folder
         df_raw = pd.read_parquet(existing)
         print(f"[2/4] Loaded: {os.path.basename(existing)}")
 
@@ -118,7 +163,7 @@ def main() -> None:
 
     # Step 4 — Generate report
     date_str = datetime.now().strftime("%Y-%m-%d")
-    report_path = os.path.join(folder, f"{video_id}_report_{date_str}.html")
+    report_path = os.path.join(folder, f"{slug}_report_{date_str}.html")
     print("[4/4] Generating report…")
     generate_report(video_info, df_sorted, report_path)
 
