@@ -124,7 +124,7 @@ def filter_low_value(
     url_only: bool = True,
     timestamp_only: bool = True,
     repeat_char: bool = True,
-    english_only: bool = False,
+    english_only: bool = True,
     dedup: bool = True,
     dedup_threshold: int = 85,
 ) -> pd.DataFrame:

@@ -8,8 +8,7 @@ const FILTER_DEFS = [
   { key: 'url_only',       label: 'URL / Link Only',     detail: 'Drop comments that are just a link',               default: true  },
   { key: 'timestamp_only', label: 'Timestamp Only',      detail: 'Drop bare timestamps like "2:34" or "1:23:45"',    default: true  },
   { key: 'repeat_char',    label: 'Repeated Characters', detail: 'Drop "lolololol", "!!!!!" and similar spam',       default: true  },
-  { key: 'english_only',   label: 'English Only',        detail: 'Drop non-English comments (off by default)',        default: false },
-  { key: 'dedup',          label: 'Remove Duplicates',   detail: 'Drop exact and near-duplicate comments',            default: true  },
+  { key: 'english_only',   label: 'English Only',        detail: 'Drop non-English comments',                        default: true  },
 ];
 
 const _FS_KEY = 'ytc_filter_settings';

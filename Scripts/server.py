@@ -63,7 +63,7 @@ _jobs_lock = threading.Lock()
 _FILTER_BOOL_KEYS = frozenset({
     "min_chars", "min_alpha", "min_words",
     "emoji_only", "url_only", "timestamp_only",
-    "repeat_char", "english_only", "dedup",
+    "repeat_char", "english_only",
 })
 
 
