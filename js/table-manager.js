@@ -166,7 +166,7 @@ class TableManager {
         val = fmtN(val);
       } else if (col.id === 'topic_rating' || col.id === 'topic_confidence') {
         const n = Number(val);
-        val = (isNaN(n) || n < 0)
+        val = (isNaN(n) || n < 1)
           ? '<span style="color:var(--text-3);font-size:0.75em">Pend.</span>'
           : esc(String(val));
       } else {

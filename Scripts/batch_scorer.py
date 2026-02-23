@@ -183,7 +183,12 @@ def fetch_and_apply_results(
 
         try:
             content = result.result.message.content[0].text
-            ratings = json.loads(content)
+            # Strip optional markdown fences (```json...``` or ```...```)
+            stripped = content.strip()
+            if stripped.startswith("```"):
+                stripped = stripped.split("\n", 1)[-1]
+                stripped = stripped.rsplit("```", 1)[0]
+            ratings = json.loads(stripped)
         except Exception:
             continue
 

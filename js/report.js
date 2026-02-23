@@ -332,22 +332,22 @@ function renderPhrasesChart(phrases) {
 function _renderScoringButton(cb) {
   const status = cb && cb.status;
   if (!status) {
-    return `<button class="nav-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
+    return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
   }
   if (status === 'in_progress') {
-    return `<span class="nav-btn disabled" id="scoring-status-btn">Scoring&#8230;</span>`;
+    return `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>`;
   }
   if (status === 'ended') {
-    return `<span class="nav-btn disabled" id="scoring-status-btn" title="AI scoring complete">Scored &#10003;</span>`;
+    return `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
   }
   if (status === 'error') {
-    return `<button class="nav-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
+    return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
   }
   return '';
 }
 
 async function runAiScoring() {
-  const btn = document.querySelector('.strip-actions .nav-btn:last-child');
+  const btn = document.getElementById('ai-score-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
 
   try {
