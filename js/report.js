@@ -382,26 +382,6 @@ function _startScoringPoll() {
   }, 30_000); // poll every 30 s
 }
 
-// ── Cell renderer for scoring columns ─────────────────────────────────────────
-// TableManager renders cell values as text by default. topic_rating/topic_confidence
-// values of -1 mean "not yet scored" — show a muted placeholder instead.
-const _origRenderCell = typeof TableManager !== 'undefined'
-  ? TableManager.prototype._renderCell
-  : null;
-
-// Patch applied after TableManager is loaded (both are synchronous scripts)
-window.__patchScoringCells = function () {
-  if (!TableManager) return;
-  const orig = TableManager.prototype._renderCellValue;
-  TableManager.prototype._renderCellValue = function (col, value) {
-    if ((col === 'topic_rating' || col === 'topic_confidence') && (value === -1 || value === '-1' || value == null)) {
-      return '<span style="color:var(--text-3);font-size:0.75em">Pend.</span>';
-    }
-    if (orig) return orig.call(this, col, value);
-    return esc(String(value ?? ''));
-  };
-};
-
 // ── Error display ─────────────────────────────────────────────────────────────
 
 function showError(msg) {

@@ -164,6 +164,11 @@ class TableManager {
       }
       if (col.id === 'like_count') {
         val = fmtN(val);
+      } else if (col.id === 'topic_rating' || col.id === 'topic_confidence') {
+        const n = Number(val);
+        val = (isNaN(n) || n < 0)
+          ? '<span style="color:var(--text-3);font-size:0.75em">Pend.</span>'
+          : esc(String(val));
       } else {
         val = esc(val);
       }

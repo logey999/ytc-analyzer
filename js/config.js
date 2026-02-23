@@ -20,6 +20,7 @@ const CONFIG = {
     commentBlacklist: '/api/comment/blacklist',
     commentDelete: '/api/comment/delete',
     aiScore: '/api/ai-score',
+    aiScoreAggregate: '/api/ai-score-aggregate',
   },
 
   // Panel names
@@ -42,6 +43,8 @@ const CONFIG = {
     aggregate: [
       { id: 'text', label: 'Comment' },
       { id: 'like_count', label: 'Likes' },
+      { id: 'topic_rating', label: 'Score' },
+      { id: 'topic_confidence', label: 'Conf%' },
       { id: 'author', label: 'Author' },
       { id: 'video', label: 'Video' },
     ],

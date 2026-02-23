@@ -725,6 +725,127 @@ def api_ai_score_submit(report_path: str):
     return jsonify({"claude_batch": claude_batch})
 
 
+# ── API: aggregate AI scoring ──────────────────────────────────────────────────
+
+@app.get("/api/ai-score-aggregate")
+def api_ai_score_aggregate_status():
+    """Return a breakdown of scored/eligible/pending comments across all reports."""
+    eligible_count = 0
+    eligible_reports = 0
+    pending_count = 0
+    pending_reports = 0
+    scored_count = 0
+
+    pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
+    for info_path in glob.glob(pattern, recursive=True):
+        try:
+            with open(info_path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+
+            cb = info.get("claude_batch")
+            if cb and cb.get("status") == "in_progress":
+                pending_count += cb.get("comment_count", 0)
+                pending_reports += 1
+                continue
+
+            folder = os.path.dirname(info_path)
+            slug = _video_slug(info.get("title", "unknown"))
+            parquet = _find_latest_parquet(folder, slug)
+            if not parquet:
+                continue
+
+            df = pd.read_parquet(parquet)
+            if "topic_rating" not in df.columns:
+                unscored = len(df)
+                scored = 0
+            else:
+                ratings = pd.to_numeric(df["topic_rating"], errors="coerce").fillna(-1)
+                unscored = int((ratings < 1).sum())
+                scored = int((ratings >= 1).sum())
+
+            if unscored > 0:
+                eligible_count += unscored
+                eligible_reports += 1
+            scored_count += scored
+        except Exception:
+            continue
+
+    return jsonify({
+        "eligible_count": eligible_count,
+        "eligible_reports": eligible_reports,
+        "pending_count": pending_count,
+        "pending_reports": pending_reports,
+        "scored_count": scored_count,
+    })
+
+
+@app.post("/api/ai-score-aggregate")
+def api_ai_score_aggregate_submit():
+    """Submit batch scoring for all unscored comments across all reports.
+
+    Skips reports where a batch is already in_progress.
+    For each eligible report, submits only unscored rows (topic_rating == -1).
+    Returns { batches_submitted, comments_submitted }.
+    """
+    batches_submitted = 0
+    comments_submitted = 0
+
+    pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
+    for info_path in glob.glob(pattern, recursive=True):
+        try:
+            with open(info_path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+
+            cb = info.get("claude_batch")
+            if cb and cb.get("status") == "in_progress":
+                continue  # already pending — skip
+
+            folder = os.path.dirname(info_path)
+            slug = _video_slug(info.get("title", "unknown"))
+            parquet = _find_latest_parquet(folder, slug)
+            if not parquet:
+                continue
+
+            df = pd.read_parquet(parquet)
+            df["like_count"] = pd.to_numeric(df["like_count"], errors="coerce").fillna(0).astype(int)
+
+            if "topic_rating" in df.columns:
+                ratings = pd.to_numeric(df["topic_rating"], errors="coerce").fillna(-1)
+                df_unscored = df[ratings < 1].copy()
+            else:
+                df_unscored = df.copy()
+
+            if df_unscored.empty:
+                continue
+
+            try:
+                batch_id, comment_ids = batch_scorer.submit_batch(df_unscored)
+            except RuntimeError as exc:
+                return jsonify({"error": str(exc)}), 400
+            except Exception as exc:
+                return jsonify({"error": f"batch submission failed: {exc}"}), 500
+
+            submitted_at = datetime.now(timezone.utc).isoformat()
+            info["claude_batch"] = {
+                "batch_id": batch_id,
+                "submitted_at": submitted_at,
+                "status": "in_progress",
+                "comment_count": len(df_unscored),
+                "chunk_size": batch_scorer.CHUNK_SIZE,
+                "comment_ids": comment_ids,
+            }
+            with open(info_path, "w", encoding="utf-8") as f:
+                json.dump(info, f, ensure_ascii=False)
+
+            batches_submitted += 1
+            comments_submitted += len(df_unscored)
+
+        except Exception:
+            continue
+
+    return jsonify({"batches_submitted": batches_submitted, "comments_submitted": comments_submitted})
+
+
 # ── Background batch poller ────────────────────────────────────────────────────
 
 _POLL_INTERVAL = 15 * 60  # 15 minutes
