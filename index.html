@@ -74,9 +74,37 @@
 <div id="filter-settings-modal" class="modal-overlay" onclick="closeFilterSettings(event)">
   <div class="modal-box">
     <div class="modal-header">
-      <span class="modal-title">Auto Blacklist Settings</span>
+      <span class="modal-title">Analyzer Settings</span>
       <button class="modal-close" onclick="closeFilterSettings()">&times;</button>
     </div>
+
+    <!-- API Keys -->
+    <div class="api-keys-section">
+      <div class="api-keys-header">
+        <span class="api-keys-title">API Keys</span>
+        <span class="api-keys-desc">Saved to your local <code>.env</code> file. Leave blank to keep existing value.</span>
+      </div>
+      <div class="api-keys-fields">
+        <div class="api-key-field">
+          <label class="api-key-label" for="api-key-youtube">YouTube Data API v3</label>
+          <input type="password" id="api-key-youtube" class="api-key-input"
+            placeholder="Not configured" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="api-key-field">
+          <label class="api-key-label" for="api-key-anthropic">Anthropic API</label>
+          <input type="password" id="api-key-anthropic" class="api-key-input"
+            placeholder="Not configured" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="api-keys-footer">
+        <button class="btn btn-secondary api-keys-save-btn" onclick="_saveApiKeys()">Save Keys</button>
+        <span id="api-keys-status" class="api-keys-status"></span>
+      </div>
+    </div>
+
+    <div class="modal-section-divider"></div>
+
+    <!-- Auto-filter toggles -->
     <p class="modal-desc">Filtered comments are sent to the blacklist automatically when a video is analyzed. Settings are saved locally.</p>
     <div class="filter-list" id="filter-list"></div>
   </div>

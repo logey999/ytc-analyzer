@@ -145,8 +145,64 @@ function _renderFilterToggles() {
   }).join('');
 }
 
+// ── API Key management ────────────────────────────────────────────────────────
+
+async function _loadApiKeys() {
+  try {
+    const res  = await fetch('/api/env-keys');
+    const data = await res.json();
+    const ytInput = document.getElementById('api-key-youtube');
+    const anInput = document.getElementById('api-key-anthropic');
+    if (ytInput) ytInput.placeholder = data.YOUTUBE_API_KEY
+      ? `Already set (ends ${data.YOUTUBE_API_KEY})`
+      : 'Not configured';
+    if (anInput) anInput.placeholder = data.ANTHROPIC_API_KEY
+      ? `Already set (ends ${data.ANTHROPIC_API_KEY})`
+      : 'Not configured';
+  } catch (_) {}
+}
+
+async function _saveApiKeys() {
+  const ytInput  = document.getElementById('api-key-youtube');
+  const anInput  = document.getElementById('api-key-anthropic');
+  const statusEl = document.getElementById('api-keys-status');
+  const btn      = document.querySelector('.api-keys-save-btn');
+
+  const payload = {};
+  if (ytInput && ytInput.value.trim()) payload.YOUTUBE_API_KEY   = ytInput.value.trim();
+  if (anInput && anInput.value.trim()) payload.ANTHROPIC_API_KEY = anInput.value.trim();
+
+  if (!Object.keys(payload).length) {
+    if (statusEl) { statusEl.textContent = 'Nothing to save.'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch('/api/env-keys', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (ytInput) ytInput.value = '';
+      if (anInput) anInput.value = '';
+      await _loadApiKeys();
+      if (statusEl) { statusEl.textContent = 'Saved.'; setTimeout(() => { statusEl.textContent = ''; }, 2500); }
+    } else {
+      if (statusEl) statusEl.textContent = data.error || 'Error saving.';
+    }
+  } catch (_) {
+    if (statusEl) statusEl.textContent = 'Network error.';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function openFilterSettings() {
   _renderFilterToggles();
+  _loadApiKeys();
   document.getElementById('filter-settings-modal').classList.add('open');
 }
 
