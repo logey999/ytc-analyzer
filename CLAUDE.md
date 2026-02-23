@@ -76,6 +76,7 @@ deleted.html          Deleted comments
 - `generate_report(video_info, df, output_path)` — writes self-contained HTML
 - CSS inlined from `../css/report.css`; falls back gracefully if missing
 - Shows all comments JS-paginated (200 per page), sorted by likes
+- `topic_rating` (1–10) and `topic_confidence` (0–100) columns shown when AI scoring is active
 
 ### Web Dashboard (`server.py`)
 - Flask on `http://localhost:5000`; serves HTML pages and REST API
@@ -149,15 +150,16 @@ Reports/{channel_slug}/{video_slug}/{video_slug}_{type}_YYYY-MM-DD.{ext}
 
 ### Comment Filtering (`filter_low_value`)
 Filters ordered cheapest → most expensive; all default `True`:
-- `min_chars` — drop < 3 chars
+- `min_chars` — drop < `min_chars_threshold` chars (default 3)
 - `min_alpha` — drop < 2 alphabetic chars
-- `min_words` — drop < 3 words
+- `min_words` — drop < `min_words_threshold` words (default 3)
 - `emoji_only` — drop if non-emoji content is empty (requires `emoji`)
 - `url_only` — drop if non-URL content is empty
 - `timestamp_only` — drop bare timestamps (`"2:34"`, `"1:23:45"`)
 - `repeat_char` — drop 5+ identical consecutive chars
-- `blacklist_match` — drop if matches existing blacklist text
+- `blacklist_match` — drop if matches existing blacklist text (requires `blacklist_texts` set)
 - `english_only` — drop non-English (requires `langdetect`)
+- `sentiment_filter` — drop comments with VADER compound score ≤ `sentiment_threshold` (default −0.5; requires `vaderSentiment`)
 - `dedup` — remove exact and near-duplicates; `dedup_threshold` default 85% (requires `rapidfuzz`)
 
 ### CommentStore (`comment_store.py`)
@@ -207,4 +209,4 @@ Rates comments 1–10 on **video topic potential** using Claude Haiku via the An
 - **Single-ownership comment model**: enforces one store per comment
 - **SSE for progress**: avoids polling; stream closes when job completes
 - **`api_reports.py`**: Blueprint skeleton not yet wired into `server.py`
-- **`vaderSentiment`**: listed as dependency but sentiment analysis not yet implemented
+- **`vaderSentiment`**: used by `sentiment_filter` in `filter_low_value` to drop strongly negative comments
