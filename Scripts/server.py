@@ -480,7 +480,7 @@ def _remove_from_parquet(comment_id: str, report_path: str) -> None:
     matches = glob.glob(os.path.join(folder, f"{video_slug}_comments_*.parquet"))
     if not matches:
         return
-    parquet_path = matches[0]
+    parquet_path = max(matches)
     df = pd.read_parquet(parquet_path)
     if "id" in df.columns and comment_id in df["id"].values:
         df = df[df["id"] != comment_id]
