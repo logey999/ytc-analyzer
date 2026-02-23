@@ -4,13 +4,13 @@ Guidance for AI assistants working in this repository.
 
 ## Project Overview
 
-**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with all comments and Claude AI scoring for video topic potential. Two entry points: CLI (`analyze_video.py`) and Flask web dashboard (`server.py`).
+**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with all comments and Claude AI scoring for video topic potential. Accessed via Flask web dashboard (`server.py`).
 
 ## File Structure
 
 ```
 Scripts/
-  analyze_video.py    Stage 2: Orchestration & CLI entry point
+  analyze_video.py    Stage 2: Orchestration (called by server.py)
   get_comments.py     Stage 1: Comment fetching (YouTube Data API v3)
   create_report.py    Stage 3: HTML report generation
   server.py           Flask web server (port 5000)
@@ -66,11 +66,11 @@ deleted.html          Deleted comments
 - Retries with exponential backoff on 429/500/503
 
 ### Stage 2 — Orchestration (`analyze_video.py`)
+- Called by `server.py`; not a user-facing entry point
 - Extracts video ID → scans `Reports/**/*_info.json` for existing match
 - Reuse path: loads `.parquet` + `_info.json` (no network call)
 - Fresh path: calls `get_comments()`, saves `.parquet` + `_info.json`
 - Calls `filter_low_value()` then `generate_report()`
-- Reuse prompt: default (Enter) = reuse; `"2"` = fresh fetch
 
 ### Stage 3 — Report Generation (`create_report.py`)
 - `generate_report(video_info, df, output_path)` — writes self-contained HTML
@@ -195,7 +195,7 @@ Rates comments 1–10 on **video topic potential** using Claude Haiku via the An
 **Frontend integration:**
 - `report.js`: "✨ AI Score" button in video strip; polls `GET /api/ai-score/<path>` every 30s; score columns shown in All Comments table when scoring is active
 - `aggregate.js`: "✨ AI Score All" button with confirmation modal; polls `GET /api/ai-score-aggregate` every 30s; score columns auto-shown when any comments are scored
-- Requires `ANTHROPIC_API_KEY` in `.env`; returns `{"error": "..."}` and degrades gracefully if missing
+- API keys are provided via the dashboard settings panel (not `.env`); returns `{"error": "..."}` and degrades gracefully if missing
 
 ### Security
 - All user content in HTML goes through `esc()` (HTML entity escaping)
