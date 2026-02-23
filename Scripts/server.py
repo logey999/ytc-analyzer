@@ -46,6 +46,8 @@ app = Flask(__name__)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS_DIR = os.path.join(PROJECT_ROOT, "Reports")
+_ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+_ENV_ALLOWED_KEYS = frozenset({"YOUTUBE_API_KEY", "ANTHROPIC_API_KEY"})
 
 # JSON stores for persistence
 BLACKLIST_PATH = os.path.join(PROJECT_ROOT, "Reports", "blacklist.parquet")
@@ -775,6 +777,75 @@ def _batch_poll_worker() -> None:
 # Start background poller (one thread, survives app reloads in non-debug mode)
 _poller_thread = threading.Thread(target=_batch_poll_worker, daemon=True, name="batch-poller")
 _poller_thread.start()
+
+
+@app.get("/api/env-keys")
+def api_env_keys_get():
+    """Return masked API key info (last 4 chars only — never the full key)."""
+    result = {}
+    for key in _ENV_ALLOWED_KEYS:
+        val = os.environ.get(key, "")
+        if len(val) >= 4:
+            result[key] = f"···{val[-4:]}"
+        elif val:
+            result[key] = "···"
+        else:
+            result[key] = None
+    return jsonify(result)
+
+
+@app.post("/api/env-keys")
+def api_env_keys_post():
+    """Write provided API keys to .env and reload them into the running process."""
+    data = request.get_json(force=True, silent=True) or {}
+
+    updates: dict[str, str] = {}
+    for key in _ENV_ALLOWED_KEYS:
+        val = data.get(key)
+        if val is None:
+            continue
+        val = str(val).strip()
+        if not val:
+            continue
+        # Prevent newline injection into .env
+        if "\n" in val or "\r" in val:
+            return jsonify({"error": f"Invalid value for {key}"}), 400
+        updates[key] = val
+
+    if not updates:
+        return jsonify({"ok": True, "updated": []})
+
+    # Read existing .env (may not exist yet)
+    env_lines: list[str] = []
+    if os.path.exists(_ENV_PATH):
+        with open(_ENV_PATH, "r", encoding="utf-8") as f:
+            env_lines = f.readlines()
+
+    # Update in-place or append
+    written: set[str] = set()
+    new_lines: list[str] = []
+    for line in env_lines:
+        matched = False
+        for key, val in updates.items():
+            if line.strip().startswith(f"{key}="):
+                new_lines.append(f"{key}={val}\n")
+                written.add(key)
+                matched = True
+                break
+        if not matched:
+            new_lines.append(line)
+    for key, val in updates.items():
+        if key not in written:
+            new_lines.append(f"{key}={val}\n")
+
+    with open(_ENV_PATH, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+    # Reload into current process so server picks up the new values immediately
+    for key, val in updates.items():
+        os.environ[key] = val
+
+    return jsonify({"ok": True, "updated": list(updates.keys())})
 
 
 @app.get("/api/counts")

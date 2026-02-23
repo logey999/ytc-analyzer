@@ -276,6 +276,99 @@
   border: none;
 }
 
+/* ── API Keys section ─────────────────────────────────────────────────────── */
+
+.api-keys-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.api-keys-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.api-keys-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.api-keys-desc {
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+.api-keys-desc code {
+  font-family: 'DM Mono', monospace;
+  background: var(--bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.api-keys-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.api-key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.api-key-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.api-key-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 0.80rem;
+  font-family: 'DM Mono', monospace;
+  transition: border-color 0.15s;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: var(--red);
+}
+
+.api-key-input::placeholder {
+  color: var(--text-3);
+}
+
+.api-keys-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.api-keys-status {
+  font-size: 0.76rem;
+  color: var(--text-3);
+}
+
+/* ── Section divider (between API keys and filter toggles) ───────────────── */
+
+.modal-section-divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Slider value display ─────────────────────────────────────────────────── */
+
 .filter-slider-val {
   font-size: 0.78rem;
   font-weight: 600;
