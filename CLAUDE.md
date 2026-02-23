@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository.
 
 ## Project Overview
 
-**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with repeated phrase analysis and top liked comments. Two entry points: CLI (`analyze_video.py`) and Flask web dashboard (`server.py`).
+**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with repeated phrase analysis, top liked comments, and optional Claude AI scoring for video topic potential. Two entry points: CLI (`analyze_video.py`) and Flask web dashboard (`server.py`).
 
 ## File Structure
 
@@ -15,6 +15,7 @@ Scripts/
   create_report.py    Stage 3: HTML report generation
   server.py           Flask web server (port 5000)
   comment_store.py    CommentStore — Parquet-based persistence (saved/blacklist/deleted)
+  batch_scorer.py     AI scoring — submits comments to Anthropic Batches API; polls & writes results
   api_reports.py      Blueprint skeleton (not wired into server.py yet)
 
 Reports/              Auto-created output folder
@@ -105,6 +106,12 @@ GET    /api/deleted                  List deleted comments
 DELETE /api/deleted/<comment_id>     Remove from Deleted
 GET    /css/<file>                   Serve CSS assets
 GET    /js/<file>                    Serve JS assets
+
+# AI scoring (Anthropic Batches API)
+POST   /api/ai-score/<path>          Submit batch scoring for one report (idempotent)
+GET    /api/ai-score/<path>          Return claude_batch block from _info.json
+POST   /api/ai-score-aggregate       Submit batch scoring for all unscored comments
+GET    /api/ai-score-aggregate       Return counts: eligible/pending/scored across all reports
 ```
 
 ## Data Flow
@@ -165,6 +172,36 @@ Filters ordered cheapest → most expensive; all default `True`:
 - Single-ownership: `_move_exclusive()` removes from all stores before adding to destination
 - Stored as Parquet at `Reports/{saved,blacklist,deleted}.parquet`
 - Thread-safe via `_store_lock` (RLock) in `server.py`
+
+### AI Scoring (`batch_scorer.py`)
+Rates comments 1–10 on **video topic potential** using Claude Haiku via the Anthropic Batches API (50% discount vs standard API).
+
+- `submit_batch(df)` — chunks comments into groups of 100, submits to `/v1/messages/batches`, returns `(batch_id, comment_ids)`
+- `check_batch_status(batch_id)` — returns `processing_status` string; no token cost
+- `fetch_and_apply_results(batch_id, comment_ids, parquet_path)` — streams results, maps back to rows by ID, writes `topic_rating` and `topic_confidence` columns to Parquet
+
+**Parquet columns added:** `topic_rating` (int 1–10, -1 = unscored), `topic_confidence` (int 0–100, -1 = unscored)
+
+**Metadata written to `_info.json`:**
+```json
+{
+  "claude_batch": {
+    "batch_id": "msgbatch_01abc...",
+    "submitted_at": "2026-02-22T14:30:00Z",
+    "status": "in_progress" | "ended" | "error",
+    "comment_count": 847,
+    "chunk_size": 100,
+    "comment_ids": ["Ug4xABC...", "..."]
+  }
+}
+```
+
+**Background polling daemon** (`_batch_poll_worker` in `server.py`): daemon thread started at server launch; scans all `_info.json` files every 15 minutes; collects results for any `"in_progress"` batch that has `processing_status == "ended"`; updates status to `"ended"` in `_info.json`.
+
+**Frontend integration:**
+- `report.js`: "✨ AI Score" button in video strip; polls `GET /api/ai-score/<path>` every 30s; score columns shown in All Comments table when scoring is active
+- `aggregate.js`: "✨ AI Score All" button with confirmation modal; polls `GET /api/ai-score-aggregate` every 30s; score columns auto-shown when any comments are scored
+- Requires `ANTHROPIC_API_KEY` in `.env`; returns `{"error": "..."}` and degrades gracefully if missing
 
 ### Security
 - All user content in HTML goes through `esc()` (HTML entity escaping)
