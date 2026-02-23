@@ -56,6 +56,16 @@ except ImportError:
     _fuzz = None  # type: ignore[assignment]
     _RAPIDFUZZ_AVAILABLE = False
 
+# vaderSentiment: rule-based sentiment analysis (compound score −1 to +1)
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _SIA
+    _VADER_AVAILABLE = True
+    _vader = _SIA()
+except ImportError:
+    _SIA = None  # type: ignore[assignment]
+    _VADER_AVAILABLE = False
+    _vader = None
+
 # ---------------------------------------------------------------------------
 # Pre-compiled patterns
 # ---------------------------------------------------------------------------
@@ -142,6 +152,8 @@ def filter_low_value(
     blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
     # ── per-row ML inference (slow) ───────────────────────────────────────
     english_only: bool = True,
+    sentiment_filter: bool = True,
+    sentiment_threshold: float = -0.5,  # VADER compound ≤ threshold → blacklist
     # ── pairwise comparison (slowest, O(n²)) ─────────────────────────────
     dedup: bool = True,
     dedup_threshold: int = 85,
@@ -151,17 +163,19 @@ def filter_low_value(
     Filters are ordered cheapest → most expensive to minimise rows processed
     by later stages.
 
-        min_chars        — drop comments shorter than 3 characters
-        min_alpha        — drop comments with fewer than 2 letters
-        min_words        — drop comments with fewer than 3 words
-        emoji_only       — drop comments whose non-emoji content is empty/trivial
-        url_only         — drop comments whose non-URL content is empty/trivial
-        timestamp_only   — drop bare timestamps ("2:34", "1:23:45")
-        repeat_char      — drop comments with 5+ identical consecutive characters
-        blacklist_match  — drop comments matching existing blacklist (requires: blacklist_texts set)
-        english_only     — drop non-English comments (requires: langdetect)
-        dedup            — drop ALL copies of any exact or near-duplicate comment
-        dedup_threshold  — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
+        min_chars          — drop comments shorter than 3 characters
+        min_alpha          — drop comments with fewer than 2 letters
+        min_words          — drop comments with fewer than 3 words
+        emoji_only         — drop comments whose non-emoji content is empty/trivial
+        url_only           — drop comments whose non-URL content is empty/trivial
+        timestamp_only     — drop bare timestamps ("2:34", "1:23:45")
+        repeat_char        — drop comments with 5+ identical consecutive characters
+        blacklist_match    — drop comments matching existing blacklist (requires: blacklist_texts set)
+        english_only       — drop non-English comments (requires: langdetect)
+        sentiment_filter   — drop comments with VADER compound score ≤ sentiment_threshold
+        sentiment_threshold — VADER compound cutoff (−1 to 0); default −0.5 (requires: vaderSentiment)
+        dedup              — drop ALL copies of any exact or near-duplicate comment
+        dedup_threshold    — similarity % (0-100) for near-dup detection (requires: rapidfuzz)
     """
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
@@ -206,7 +220,17 @@ def filter_low_value(
         else:
             print("  [warn] english_only requires 'langdetect': pip install langdetect")
 
-    # ── 5. pairwise near-dup removal (O(n²) — must run last) ─────────────
+    # ── 5. per-row sentiment analysis (slow — VADER rule-based) ──────────
+    if sentiment_filter:
+        if _VADER_AVAILABLE:
+            threshold = float(sentiment_threshold)
+            df = df[df["text"].apply(
+                lambda t: _vader.polarity_scores(t)["compound"] > threshold
+            )]
+        else:
+            print("  [warn] sentiment_filter requires 'vaderSentiment': pip install vaderSentiment")
+
+    # ── 6. pairwise near-dup removal (O(n²) — must run last) ─────────────
     if dedup:
         # Exact duplicates (case-insensitive) — remove ALL copies, keep none
         norm = df["text"].str.lower().str.strip()
