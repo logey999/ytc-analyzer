@@ -152,7 +152,11 @@ function createJobCard(jobKey, urlDisplay) {
     </div>
     <div class="report-card-body">
       <div class="report-card-title">${esc(urlDisplay)}</div>
-      <div class="report-card-meta"><span class="job-status-text">Starting…</span></div>
+      <div class="report-card-meta">
+        <span class="job-phase-label">Fetching</span>
+        <span class="job-status-text">Starting…</span>
+      </div>
+      <div class="job-progress-track"><div class="job-progress-bar" style="width:0%"></div></div>
     </div>`;
 
   document.getElementById('panel-reports').prepend(card);
@@ -160,10 +164,25 @@ function createJobCard(jobKey, urlDisplay) {
   return card;
 }
 
-function setJobRunning(jobKey, msg) {
+function setJobRunning(jobKey, msg, phase, pct) {
   const card = document.getElementById('job-' + jobKey);
   if (!card) return;
   card.querySelector('.job-status-text').textContent = msg;
+
+  const phaseEl = card.querySelector('.job-phase-label');
+  if (phaseEl && phase) {
+    phaseEl.textContent = phase === 'classify' ? 'Classifying' : 'Fetching';
+    phaseEl.dataset.phase = phase;
+  }
+
+  const bar = card.querySelector('.job-progress-bar');
+  if (bar && pct != null) {
+    // Fetch phase maps to 0–70% of the bar; classify maps to 70–100%
+    const barPct = phase === 'classify'
+      ? 70 + Math.round(pct * 0.30)
+      : Math.round(pct * 0.70);
+    bar.style.width = barPct + '%';
+  }
 }
 
 function setJobCached(jobKey, title, metaText) {
@@ -334,7 +353,7 @@ function streamProgress(jobKey, serverId) {
         setJobError(jobKey, msg.error);
         es.close(); updateAnalyzeBtn(); return;
       }
-      if (msg.msg) setJobRunning(jobKey, msg.msg);
+      if (msg.msg) setJobRunning(jobKey, msg.msg, msg.phase, msg.pct);
       if (msg.done) {
         setJobDone(jobKey, msg.title || null, msg.report_path);
         es.close();

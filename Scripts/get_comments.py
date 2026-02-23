@@ -145,10 +145,12 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
     """Paginate through all comments (top-level + replies) for a video.
 
     Returns (all_comments, units_used)
+    on_progress is called as on_progress(msg: str, pct: int | None)
     """
     all_comments = []
     page_token = None
     units = 0
+    total_expected = 0
 
     while True:
         request = youtube.commentThreads().list(
@@ -162,6 +164,8 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
         try:
             response = _api_request_with_retry(request)
             units += 1  # commentThreads.list costs 1 unit
+            if not total_expected:
+                total_expected = response.get("pageInfo", {}).get("totalResults", 0)
         except HttpError as e:
             if e.resp.status == 403:
                 reason = ""
@@ -216,7 +220,11 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
                     })
 
         if on_progress:
-            on_progress(f"Fetched {len(all_comments):,} comments...")
+            if total_expected:
+                pct = min(int(len(all_comments) / total_expected * 100), 99)
+                on_progress(f"Fetched {len(all_comments):,} / {total_expected:,} comments…", pct)
+            else:
+                on_progress(f"Fetched {len(all_comments):,} comments…", None)
         else:
             print(f"  Fetched {len(all_comments):,} comments...")
 
@@ -275,7 +283,7 @@ def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame, int]:
 
     Args:
         url: Full YouTube video URL.
-        on_progress: Optional callback(msg: str) for progress updates.
+        on_progress: Optional callback(msg: str, pct: int | None) for progress updates.
 
     Returns:
         (video_info, df, units_used)
@@ -287,15 +295,15 @@ def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame, int]:
     youtube = _build_youtube_client()
 
     if on_progress:
-        on_progress("Fetching video metadata...")
+        on_progress("Fetching video metadata…", None)
     else:
         print("  Fetching video metadata...")
     video_info = _fetch_video_info(youtube, video_id)
     if on_progress:
-        on_progress(f"Video: {video_info.get('title', '')}")
+        on_progress(f"Video: {video_info.get('title', '')}", None)
 
     if on_progress:
-        on_progress("Fetching comments...")
+        on_progress("Fetching comments…", 0)
     else:
         print("  Fetching comments...")
     comments, units = _fetch_all_comments(youtube, video_id, on_progress=on_progress)

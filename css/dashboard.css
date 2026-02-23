@@ -370,6 +370,42 @@ body {
 .status-error { color: var(--red); }
 .status-cache { color: var(--blue); }
 
+/* Phase label shown before status text */
+.job-phase-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.job-phase-label[data-phase="classify"] {
+  color: var(--yellow);
+}
+
+/* Progress bar track + fill */
+.job-progress-track {
+  margin-top: 6px;
+  height: 3px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.job-progress-bar {
+  height: 100%;
+  background: var(--cyan);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.job-done .job-progress-track,
+.job-cached .job-progress-track,
+.job-error .job-progress-track { display: none; }
+
+.job-done .job-phase-label,
+.job-cached .job-phase-label,
+.job-error .job-phase-label { display: none; }
+
 /* ── Slide-in animation for new job cards ─────────────────────────────────── */
 
 @keyframes cardSlideIn {

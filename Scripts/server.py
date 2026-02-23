@@ -107,8 +107,11 @@ def _run_analysis(url: str, job_id: str) -> None:
     try:
         video_id = extract_video_id(url)
 
-        def on_progress(msg: str) -> None:
-            _send(q, {"msg": msg})
+        def on_progress(msg: str, pct=None) -> None:
+            data: dict = {"msg": msg, "phase": "fetch"}
+            if pct is not None:
+                data["pct"] = pct
+            _send(q, data)
 
         video_info, df_raw, units_used = get_comments(url, on_progress=on_progress)
 
@@ -142,26 +145,30 @@ def _run_analysis(url: str, job_id: str) -> None:
 
         # Save only the filtered (pending) comments to the parquet
         df_filtered.to_parquet(parquet_path, index=False)
-        _send(q, {"msg": f"Saved {len(df_filtered):,} comments to disk."})
+        _send(q, {"msg": f"Saved {len(df_filtered):,} comments to disk.", "phase": "classify", "pct": 10})
 
         # Auto-blacklist low-value comments using per-job filter settings
         df_low = df_raw[~df_raw["id"].isin(df_filtered["id"])]
         report_path = f"{channel_slug}/{slug}"
         if not df_low.empty:
+            df_low = df_low.copy()
             df_low["author"] = df_low.get("author", pd.Series(dtype=str)).fillna("").astype(str)
             df_low["text"]   = df_low.get("text",   pd.Series(dtype=str)).fillna("").astype(str)
-            for _, row in df_low.iterrows():
-                cid = row.get("id")
-                if cid:
-                    blacklist_store.add({
-                        "id": str(cid),
-                        "author": str(row.get("author", "")),
-                        "text": str(row.get("text", "")),
-                        "like_count": int(row.get("like_count", 0)),
-                        "_reportPath": report_path,
-                        "reason": reasons.get(str(cid), "Low Value"),
-                    })
-            _send(q, {"msg": f"Auto-blacklisted {len(df_low):,} low-value comments."})
+            _send(q, {"msg": f"Classifying {len(df_low):,} low-value comments…", "phase": "classify", "pct": 20})
+            batch = [
+                {
+                    "id": str(row.get("id")),
+                    "author": str(row.get("author", "")),
+                    "text": str(row.get("text", "")),
+                    "like_count": int(row.get("like_count", 0)),
+                    "_reportPath": report_path,
+                    "reason": reasons.get(str(row.get("id")), "Low Value"),
+                }
+                for _, row in df_low.iterrows()
+                if row.get("id")
+            ]
+            blacklist_store.add_many(batch)
+            _send(q, {"msg": f"Auto-blacklisted {len(df_low):,} low-value comments.", "phase": "classify", "pct": 90})
 
         video_info["created_at"] = datetime.now(timezone.utc).isoformat()
         with open(info_path, "w", encoding="utf-8") as f:
@@ -177,6 +184,8 @@ def _run_analysis(url: str, job_id: str) -> None:
             "report_path": report_path,
             "title": video_info.get("title", ""),
             "total": len(df_raw),
+            "phase": "classify",
+            "pct": 100,
         })
 
     except Exception as exc:

@@ -85,6 +85,20 @@ class CommentStore:
                         pass
                 raise
 
+    def add_many(self, comments: List[Dict[str, Any]]) -> int:
+        """Bulk-add comments, skipping duplicates by ID. Returns count added."""
+        if not comments:
+            return 0
+        with self.lock:
+            data = self.load()
+            existing_ids = {c.get("id") for c in data}
+            new = [c for c in comments if c.get("id") not in existing_ids]
+            if not new:
+                return 0
+            data = new + data  # prepend so newest appear first
+            self.save(data)
+            return len(new)
+
     def add(self, comment: Dict[str, Any]) -> bool:
         """Add a comment if it doesn't already exist (by ID). Returns True if added."""
         if not isinstance(comment, dict) or "id" not in comment:
