@@ -3,16 +3,33 @@
 // Each entry can have an optional `slider` property for a threshold sub-control.
 // slider: { key, label, detail, min, max, step, default, format }
 const FILTER_DEFS = [
-  { key: 'min_chars',      label: 'Too Short',           detail: 'Drop comments under 3 characters',                               default: true  },
-  { key: 'min_alpha',      label: 'No Letters',          detail: 'Drop comments with fewer than 2 alphabetic chars',               default: true  },
-  { key: 'min_words',      label: 'Too Few Words',       detail: 'Drop comments with fewer than 3 words',                          default: true  },
-  { key: 'emoji_only',     label: 'Emoji Only',          detail: 'Drop comments that are just emoji with no text',                 default: true  },
-  { key: 'url_only',       label: 'URL / Link Only',     detail: 'Drop comments that are just a link',                            default: true  },
-  { key: 'timestamp_only', label: 'Timestamp Only',      detail: 'Drop bare timestamps like "2:34" or "1:23:45"',                 default: true  },
-  { key: 'repeat_char',    label: 'Repeated Characters', detail: 'Drop "lolololol", "!!!!!" and similar spam',                    default: true  },
-  { key: 'blacklist_match', label: 'Known Blacklist',    detail: 'Auto-blacklist comments matching your existing blacklist',       default: true  },
-  { key: 'english_only',   label: 'English Only',        detail: 'Drop non-English comments',                                     default: true  },
-  { key: 'sentiment_filter', label: 'Negative Sentiment', detail: 'Blacklist strongly negative comments (VADER sentiment analysis)', default: true,
+  // ── simple toggles (no slider) — fill the top rows in pairs ────────────────
+  { key: 'blacklist_match', label: 'Known Blacklist',    detail: '',    default: true },
+  { key: 'min_alpha',       label: 'No Letters',         detail: '',      default: true },
+  { key: 'emoji_only',      label: 'Emoji Only',         detail: '',             default: true },
+  { key: 'url_only',        label: 'URL / Link Only',    detail: '',                        default: true },
+  { key: 'timestamp_only',  label: 'Timestamp Only',     detail: '',             default: true },
+  { key: 'repeat_char',     label: 'Repeated Chars',     detail: '',                default: true },
+  // ── slider pairs — placed together so each pair shares a grid row ──────────
+  { key: 'min_chars',       label: 'Too Short',          detail: '',               default: true,
+    slider: {
+      key: 'min_chars_threshold',
+      label: 'Minimum Characters',
+      detail: 'Blacklist shorter than this many characters',
+      min: 1, max: 20, step: 1, default: 3,
+      format: v => Math.round(v) + ' chars',
+    }
+  },
+  { key: 'min_words',       label: 'Too Few Words',      detail: '',              default: true,
+    slider: {
+      key: 'min_words_threshold',
+      label: 'Minimum Words',
+      detail: 'Blacklist fewer than this many words',
+      min: 1, max: 10, step: 1, default: 3,
+      format: v => Math.round(v) + ' words',
+    }
+  },
+  { key: 'sentiment_filter', label: 'Negative Sentiment', detail: '', default: true,
     slider: {
       key: 'sentiment_threshold',
       label: 'Negativity Threshold',
@@ -21,7 +38,7 @@ const FILTER_DEFS = [
       format: v => parseFloat(v).toFixed(2),
     }
   },
-  { key: 'dedup',          label: 'Remove Duplicates',   detail: 'Blacklist all copies of duplicate comments',                    default: true,
+  { key: 'dedup',           label: 'Remove Duplicates',  detail: '',               default: true,
     slider: {
       key: 'dedup_threshold',
       label: 'Similarity Cutoff',
@@ -30,6 +47,7 @@ const FILTER_DEFS = [
       format: v => Math.round(v) + '%',
     }
   },
+  { key: 'english_only',    label: 'Non-English',        detail: '',               default: true },
 ];
 
 const _FS_KEY = 'ytc_filter_settings';

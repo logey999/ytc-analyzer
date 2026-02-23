@@ -1,6 +1,6 @@
 // ── Blacklist page ────────────────────────────────────────────────────────────
 
-const COL_DEFS = CONFIG.columns.aggregate;
+const COL_DEFS = CONFIG.columns.blacklist;
 
 // Cross-panel action handler
 function blacklistToDeleted(comment, row, table) {

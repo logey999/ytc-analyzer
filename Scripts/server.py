@@ -69,6 +69,8 @@ _FILTER_BOOL_KEYS = frozenset({
 
 # Numeric filter keys: name → (type, min, max, default)
 _FILTER_NUM_KEYS: dict = {
+    "min_chars_threshold": (int,   1,    20,   3),
+    "min_words_threshold": (int,   1,    10,   3),
     "sentiment_threshold": (float, -1.0, 0.0, -0.5),
     "dedup_threshold":     (int,   50,   100,  85),
 }
@@ -121,10 +123,6 @@ def _run_analysis(url: str, job_id: str) -> None:
         info_path = os.path.join(folder, f"{slug}_info.json")
         parquet_path = os.path.join(folder, f"{slug}_comments_{date_str}.parquet")
 
-        df_raw.to_parquet(parquet_path, index=False)
-
-        _send(q, {"msg": f"Saved {len(df_raw):,} comments to disk."})
-
         # Build blacklist text set for fast O(1) matching (may be 10k+ items)
         blacklist_texts: set = set()
         if filter_kwargs.get("blacklist_match", True):
@@ -134,8 +132,14 @@ def _run_analysis(url: str, job_id: str) -> None:
                 if c.get("text")
             }
 
+        # Filter low-value comments; get reasons dict {comment_id -> rule label}
+        df_filtered, reasons = filter_low_value(df_raw, blacklist_texts=blacklist_texts, **filter_kwargs)
+
+        # Save only the filtered (pending) comments to the parquet
+        df_filtered.to_parquet(parquet_path, index=False)
+        _send(q, {"msg": f"Saved {len(df_filtered):,} comments to disk."})
+
         # Auto-blacklist low-value comments using per-job filter settings
-        df_filtered = filter_low_value(df_raw, blacklist_texts=blacklist_texts, **filter_kwargs)
         df_low = df_raw[~df_raw["id"].isin(df_filtered["id"])]
         report_path = f"{channel_slug}/{slug}"
         if not df_low.empty:
@@ -150,6 +154,7 @@ def _run_analysis(url: str, job_id: str) -> None:
                         "text": str(row.get("text", "")),
                         "like_count": int(row.get("like_count", 0)),
                         "_reportPath": report_path,
+                        "reason": reasons.get(str(cid), "Low Value"),
                     })
             _send(q, {"msg": f"Auto-blacklisted {len(df_low):,} low-value comments."})
 
@@ -482,6 +487,7 @@ def api_comment_blacklist():
     if not isinstance(comment, dict) or not comment.get("id"):
         return jsonify({"error": "comment object with id required"}), 400
 
+    comment.setdefault("reason", "User")
     _move_exclusive(comment, blacklist_store)
     return jsonify({"success": True})
 
@@ -604,13 +610,16 @@ def api_report_delete(report_path: str):
                     for _, row in df.iterrows():
                         cid = row.get("id")
                         if cid and cid not in classified_ids:
-                            dest_store.add({
+                            entry = {
                                 "id": str(cid),
                                 "author": str(row.get("author", "")),
                                 "text": str(row.get("text", "")),
                                 "like_count": int(row.get("like_count", 0)),
                                 "_reportPath": report_path,
-                            })
+                            }
+                            if disposition == "blacklist":
+                                entry["reason"] = "Report Deleted"
+                            dest_store.add(entry)
             except Exception:
                 pass  # Best-effort; still delete the folder below
 

@@ -140,8 +140,10 @@ def filter_low_value(
     df: pd.DataFrame,
     # ── vectorized string checks (fastest) ───────────────────────────────
     min_chars: bool = True,
+    min_chars_threshold: int = 3,
     min_alpha: bool = True,
     min_words: bool = True,
+    min_words_threshold: int = 3,
     # ── per-row regex checks ──────────────────────────────────────────────
     emoji_only: bool = True,
     url_only: bool = True,
@@ -180,33 +182,57 @@ def filter_low_value(
     df = df.copy()
     df["text"] = df["text"].fillna("").astype(str).str.strip()
 
+    reasons: dict = {}  # comment_id -> filter rule that removed it
+
+    def _apply(mask: "pd.Series", label: str) -> None:
+        """Drop rows where mask is False; record reason for newly removed rows."""
+        removed = df[~mask]["id"].astype(str)
+        for cid in removed:
+            reasons.setdefault(cid, label)
+
     # ── 1. vectorized string length/content checks (O(n), no per-row call) ─
     if min_chars:
-        df = df[df["text"].str.len() >= 3]
+        mask = df["text"].str.len() >= min_chars_threshold
+        _apply(mask, "Too Short")
+        df = df[mask]
     if min_alpha:
-        df = df[df["text"].str.count(r"[a-zA-Z]") >= 2]
+        mask = df["text"].str.count(r"[a-zA-Z]") >= 2
+        _apply(mask, "No Alpha")
+        df = df[mask]
     if min_words:
-        df = df[df["text"].str.split().str.len() >= 3]
+        mask = df["text"].str.split().str.len() >= min_words_threshold
+        _apply(mask, "Too Few Words")
+        df = df[mask]
 
     # ── 2. per-row regex checks ────────────────────────────────────────────
     if emoji_only:
         stripped = df["text"].apply(_strip_emoji).str.strip()
-        df = df[stripped.str.len() >= 2]
+        mask = stripped.str.len() >= 2
+        _apply(mask, "Emoji Only")
+        df = df[mask]
 
     if url_only:
         stripped = df["text"].apply(lambda t: _URL_RE.sub("", t)).str.strip()
-        df = df[stripped.str.len() >= 2]
+        mask = stripped.str.len() >= 2
+        _apply(mask, "URL Only")
+        df = df[mask]
 
     if timestamp_only:
-        df = df[~df["text"].apply(lambda t: bool(_TIMESTAMP_RE.fullmatch(t)))]
+        mask = ~df["text"].apply(lambda t: bool(_TIMESTAMP_RE.fullmatch(t)))
+        _apply(mask, "Timestamp")
+        df = df[mask]
 
     if repeat_char:
-        df = df[~df["text"].apply(lambda t: bool(_REPEAT_CHAR_RE.search(t)))]
+        mask = ~df["text"].apply(lambda t: bool(_REPEAT_CHAR_RE.search(t)))
+        _apply(mask, "Repeated Chars")
+        df = df[mask]
 
     # ── 3. set-lookup against blacklist (O(n+m), vectorized isin) ──────────
     if blacklist_match and blacklist_texts:
         norm = df["text"].str.lower().str.strip()
-        df = df[~norm.isin(blacklist_texts)]
+        mask = ~norm.isin(blacklist_texts)
+        _apply(mask, "Blacklisted")
+        df = df[mask]
 
     # ── 4. per-row language detection (slow — runs after cheap filters) ────
     if english_only:
@@ -216,7 +242,9 @@ def filter_low_value(
                     return _lang_detect(text) == "en"
                 except Exception:
                     return True  # keep on detection failure
-            df = df[df["text"].apply(_is_english)]
+            mask = df["text"].apply(_is_english)
+            _apply(mask, "Non-English")
+            df = df[mask]
         else:
             print("  [warn] english_only requires 'langdetect': pip install langdetect")
 
@@ -224,9 +252,11 @@ def filter_low_value(
     if sentiment_filter:
         if _VADER_AVAILABLE:
             threshold = float(sentiment_threshold)
-            df = df[df["text"].apply(
+            mask = df["text"].apply(
                 lambda t: _vader.polarity_scores(t)["compound"] > threshold
-            )]
+            )
+            _apply(mask, "Negative Sentiment")
+            df = df[mask]
         else:
             print("  [warn] sentiment_filter requires 'vaderSentiment': pip install vaderSentiment")
 
@@ -234,14 +264,21 @@ def filter_low_value(
     if dedup:
         # Exact duplicates (case-insensitive) — remove ALL copies, keep none
         norm = df["text"].str.lower().str.strip()
-        df = df[~norm.duplicated(keep=False)]
+        mask = ~norm.duplicated(keep=False)
+        _apply(mask, "Duplicate")
+        df = df[mask]
         # Near-duplicates via rapidfuzz — remove ALL members of every dup group
         if _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
-            df = _near_dedup_remove_all(df.reset_index(drop=True), dedup_threshold)
+            df_before = df.reset_index(drop=True)
+            df = _near_dedup_remove_all(df_before, dedup_threshold)
+            kept_ids = set(df["id"].astype(str))
+            for cid in df_before["id"].astype(str):
+                if cid not in kept_ids:
+                    reasons.setdefault(cid, "Duplicate")
         elif not _RAPIDFUZZ_AVAILABLE and dedup_threshold < 100:
             print("  [warn] near-dup dedup requires 'rapidfuzz': pip install rapidfuzz")
 
-    return df.reset_index(drop=True)
+    return df.reset_index(drop=True), reasons
 
 
 def _find_existing_report(reports_dir: str, video_id: str):
@@ -333,7 +370,7 @@ def main() -> None:
         df_raw = pd.read_parquet(existing)
         print(f"[2/4] Loaded: {os.path.basename(existing)}")
 
-    df_filtered = filter_low_value(df_raw)
+    df_filtered, _ = filter_low_value(df_raw)
     df_sorted = df_filtered.sort_values("like_count", ascending=False).reset_index(drop=True)
 
     removed = len(df_raw) - len(df_filtered)

@@ -44,5 +44,14 @@ analyze: '/api/analyze',
       { id: 'author', label: 'Author' },
       { id: 'video', label: 'Video' },
     ],
+    // Blacklist view columns (includes reason)
+    blacklist: [
+      { id: 'text', label: 'Comment' },
+      { id: 'reason', label: 'Reason' },
+      { id: 'like_count', label: 'Likes' },
+      { id: 'author', label: 'Author' },
+      { id: 'video', label: 'Video' },
+      
+    ],
   },
 };

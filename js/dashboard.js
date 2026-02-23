@@ -92,9 +92,7 @@ function buildReportCardHTML(r, isNew = false) {
   const date  = r.date       ? r.date : '—';
   const views = r.view_count ? Number(r.view_count).toLocaleString() + ' views' : '';
 
-  const classified = (r.saved_count || 0) + (r.blacklist_count || 0) + (r.deleted_count || 0);
-  const unclassified = Math.max(0, (r.comment_count || 0) - classified);
-  const n  = Number(unclassified).toLocaleString();
+  const n  = Number(r.comment_count || 0).toLocaleString();
   const k  = Number(r.saved_count    || 0).toLocaleString();
   const bl = Number(r.blacklist_count|| 0).toLocaleString();
   const dl = Number(r.deleted_count  || 0).toLocaleString();
