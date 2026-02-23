@@ -10,13 +10,15 @@ Opens at http://localhost:5000
 
 import glob
 import json
+import logging
 import os
 import queue
 import shutil
 import sys
 import threading
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -36,6 +38,7 @@ from analyze_video import (
 from create_report import find_repeated_phrases
 from comment_store import CommentStore
 from get_comments import get_comments
+import batch_scorer
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -158,7 +161,7 @@ def _run_analysis(url: str, job_id: str) -> None:
                     })
             _send(q, {"msg": f"Auto-blacklisted {len(df_low):,} low-value comments."})
 
-        video_info["created_at"] = datetime.now().isoformat()
+        video_info["created_at"] = datetime.now(timezone.utc).isoformat()
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(video_info, f, ensure_ascii=False)
 
@@ -429,12 +432,20 @@ def api_report_data(report_path: str):
     cols = ["id", "author", "like_count", "text"]
     if "author_channel_id" in df.columns:
         cols.append("author_channel_id")
+    for score_col in ("topic_rating", "topic_confidence"):
+        if score_col in df.columns:
+            cols.append(score_col)
     comments_df = df[cols].copy()
     comments_df["like_count"] = comments_df["like_count"].astype(int)
     comments_df["author"] = comments_df["author"].fillna("").astype(str)
     comments_df["text"] = comments_df["text"].fillna("").astype(str)
     if "author_channel_id" in comments_df.columns:
         comments_df["author_channel_id"] = comments_df["author_channel_id"].fillna("").astype(str)
+    for score_col in ("topic_rating", "topic_confidence"):
+        if score_col in comments_df.columns:
+            comments_df[score_col] = (
+                pd.to_numeric(comments_df[score_col], errors="coerce").fillna(-1).astype(int)
+            )
 
     return jsonify({
         "video_info": video_info,
@@ -635,6 +646,135 @@ def api_report_delete(report_path: str):
             pass
 
     return jsonify({"success": True})
+
+
+@app.get("/api/ai-score/<path:report_path>")
+def api_ai_score_status(report_path: str):
+    """Return the current claude_batch block from _info.json for a report."""
+    folder = os.path.join(REPORTS_DIR, report_path)
+    info_files = glob.glob(os.path.join(folder, "*_info.json"))
+    if not info_files:
+        return jsonify({"error": "report not found"}), 404
+    with open(info_files[0], "r", encoding="utf-8") as f:
+        info = json.load(f)
+    return jsonify({"claude_batch": info.get("claude_batch")})
+
+
+@app.post("/api/ai-score/<path:report_path>")
+def api_ai_score_submit(report_path: str):
+    """Submit a Batches API scoring job for the given report.
+
+    Idempotent: if a batch is already in_progress or ended, returns the
+    current claude_batch block without re-submitting.
+    """
+    folder = os.path.join(REPORTS_DIR, report_path)
+    info_files = glob.glob(os.path.join(folder, "*_info.json"))
+    if not info_files:
+        return jsonify({"error": "report not found"}), 404
+
+    info_path = info_files[0]
+    with open(info_path, "r", encoding="utf-8") as f:
+        info = json.load(f)
+
+    existing = info.get("claude_batch")
+    if existing and existing.get("status") in ("in_progress", "ended"):
+        return jsonify({"claude_batch": existing})
+
+    slug = _video_slug(info.get("title", "unknown"))
+    parquet = _find_latest_parquet(folder, slug)
+    if not parquet:
+        return jsonify({"error": "no parquet data found"}), 404
+
+    try:
+        df = pd.read_parquet(parquet)
+        df["like_count"] = pd.to_numeric(df["like_count"], errors="coerce").fillna(0).astype(int)
+    except Exception as exc:
+        return jsonify({"error": f"could not load parquet: {exc}"}), 500
+
+    try:
+        batch_id, comment_ids = batch_scorer.submit_batch(df)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"batch submission failed: {exc}"}), 500
+
+    submitted_at = datetime.now(timezone.utc).isoformat()
+    claude_batch = {
+        "batch_id": batch_id,
+        "submitted_at": submitted_at,
+        "status": "in_progress",
+        "comment_count": len(df),
+        "chunk_size": batch_scorer.CHUNK_SIZE,
+        "comment_ids": comment_ids,
+    }
+    info["claude_batch"] = claude_batch
+    with open(info_path, "w", encoding="utf-8") as f:
+        json.dump(info, f, ensure_ascii=False)
+
+    return jsonify({"claude_batch": claude_batch})
+
+
+# ── Background batch poller ────────────────────────────────────────────────────
+
+_POLL_INTERVAL = 15 * 60  # 15 minutes
+
+
+def _poll_all_batches() -> None:
+    """Check all in-progress batch jobs and collect results for ended ones."""
+    pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
+    for info_path in glob.glob(pattern, recursive=True):
+        try:
+            with open(info_path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+
+            cb = info.get("claude_batch")
+            if not cb or cb.get("status") != "in_progress":
+                continue
+
+            batch_id = cb.get("batch_id")
+            comment_ids = cb.get("comment_ids", [])
+            if not batch_id:
+                continue
+
+            status_info = batch_scorer.check_batch_status(batch_id)
+            if status_info.get("processing_status") != "ended":
+                continue
+
+            # Results ready — find the parquet and apply scores
+            folder = os.path.dirname(info_path)
+            slug = _video_slug(info.get("title", "unknown"))
+            parquet = _find_latest_parquet(folder, slug)
+            if parquet:
+                batch_scorer.fetch_and_apply_results(batch_id, comment_ids, parquet)
+
+            info["claude_batch"]["status"] = "ended"
+            with open(info_path, "w", encoding="utf-8") as f:
+                json.dump(info, f, ensure_ascii=False)
+
+        except Exception as exc:
+            logging.warning("Batch poll error for %s: %s", info_path, exc)
+            try:
+                with open(info_path, "r", encoding="utf-8") as f:
+                    info = json.load(f)
+                if info.get("claude_batch", {}).get("status") == "in_progress":
+                    info["claude_batch"]["status"] = "error"
+                    info["claude_batch"]["error"] = str(exc)
+                    with open(info_path, "w", encoding="utf-8") as f:
+                        json.dump(info, f, ensure_ascii=False)
+            except Exception:
+                pass
+
+
+def _batch_poll_worker() -> None:
+    """Daemon thread: poll in-progress batches every 15 minutes."""
+    while True:
+        time.sleep(_POLL_INTERVAL)
+        _poll_all_batches()
+
+
+# Start background poller (one thread, survives app reloads in non-debug mode)
+_poller_thread = threading.Thread(target=_batch_poll_worker, daemon=True, name="batch-poller")
+_poller_thread.start()
 
 
 @app.get("/api/counts")
