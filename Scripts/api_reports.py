@@ -3,7 +3,7 @@ API Blueprint: Report-related endpoints
 
 Routes:
   GET /api/reports - List all generated reports
-  GET /api/report-data/<path> - Get report data (video info, comments, phrases)
+  GET /api/report-data/<path> - Get report data (video info, comments)
 """
 
 from flask import Blueprint, jsonify, send_file, send_from_directory
@@ -14,7 +14,7 @@ import json
 bp = Blueprint('api_reports', __name__, url_prefix='/api')
 
 
-def register_routes(app, projects_root, filter_low_value, find_repeated_phrases, saved_store, blacklist_store):
+def register_routes(app, projects_root, filter_low_value, saved_store, blacklist_store):
     """
     Register report routes with the app.
 
@@ -22,7 +22,6 @@ def register_routes(app, projects_root, filter_low_value, find_repeated_phrases,
         app: Flask app instance
         projects_root: Root directory path
         filter_low_value: Function to filter low-value comments
-        find_repeated_phrases: Function to find repeated phrases
         saved_store: CommentStore for saved comments
         blacklist_store: CommentStore for blacklist
     """

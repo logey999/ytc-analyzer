@@ -77,7 +77,7 @@ async function loadReport() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-function renderReport({ video_info, comments, phrases, blacklist_count, saved_count, deleted_count }) {
+function renderReport({ video_info, comments, blacklist_count, saved_count, deleted_count }) {
   const vi = video_info || {};
   _videoInfo = vi;
   _blacklistedCount = blacklist_count || 0;
@@ -127,23 +127,9 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
       <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
     </div>
 
-    <!-- Tabs -->
+    <!-- All Comments -->
     <div class="card">
-      <div class="section-tabs">
-        <button class="tab active" onclick="showTab('all', this)">All Comments</button>
-        <button class="tab" onclick="showTab('phrases', this)">Repeated Phrases</button>
-      </div>
-
-      <!-- Pane: All Comments (managed by TableManager) -->
-      <div id="pane-all" class="tab-pane"></div>
-
-      <!-- Pane: Phrases -->
-      <div id="pane-phrases" class="tab-pane" style="display:none">
-        ${phrases && phrases.length
-          ? `<div class="chart-container"><canvas id="phrases-chart"></canvas></div>`
-          : `<p class="no-data">Not enough data to generate a phrases chart.</p>`
-        }
-      </div>
+      <div id="pane-all"></div>
     </div>
   `;
 
@@ -236,11 +222,6 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
   __tableManagers['pane-all'] = _allTable;
   _allTable.setData(allComments);
 
-  // Phrases chart
-  if (phrases && phrases.length) {
-    renderPhrasesChart(phrases);
-  }
-
   // Start polling if scoring is in progress
   if (cb && cb.status === 'in_progress') {
     _startScoringPoll();
@@ -262,68 +243,6 @@ function _withContext(comment) {
     _reportPath: REPORT_PATH,
     _reportTitle: _videoInfo.title || REPORT_PATH,
     _thumbnail: _videoInfo.thumbnail || '',
-  });
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-
-function showTab(id, btn) {
-  document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
-  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('pane-' + id).style.display = '';
-  btn.classList.add('active');
-}
-
-// ── Phrases chart (Chart.js) ──────────────────────────────────────────────────
-
-function renderPhrasesChart(phrases) {
-  const canvas = document.getElementById('phrases-chart');
-  if (!canvas) return;
-
-  const labels = phrases.map(p => p[0]);
-  const values = phrases.map(p => p[1]);
-
-  const barH = 36;
-  canvas.height = Math.max(160, labels.length * barH + 80);
-
-  new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Occurrences',
-        data: values,
-        backgroundColor: 'rgba(45,212,191,0.75)',
-        borderColor: 'rgba(45,212,191,1)',
-        borderWidth: 1,
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e1e24',
-          titleColor: '#e8e8ed',
-          bodyColor: '#a0a0b0',
-          borderColor: 'rgba(255,255,255,0.1)',
-          borderWidth: 1,
-        },
-      },
-      scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#606070', font: { size: 11 } },
-        },
-        y: {
-          grid: { display: false },
-          ticks: { color: '#e8e8ed', font: { size: 11.5 } },
-        },
-      },
-    },
   });
 }
 

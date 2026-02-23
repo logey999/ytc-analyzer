@@ -367,23 +367,6 @@ header .subtitle {
   }
 }
 
-/* ── CHARTS ──────────────────────────────────────────────────────────────── */
-
-.chart-img {
-  width: 100%;
-  border-radius: 10px;
-  display: block;
-  background: var(--bg-2);
-}
-
-.no-data {
-  color: var(--text-3);
-  font-size: 0.85rem;
-  padding: 24px 0;
-  text-align: center;
-  font-style: italic;
-}
-
 /* ── VIDEO DESCRIPTION ────────────────────────────────────────────────────── */
 
 .desc {

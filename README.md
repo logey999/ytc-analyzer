@@ -1,11 +1,9 @@
 # YouTube Comments Analyzer
 
-Fetch and analyze YouTube video comments. Generates reports with top liked comments, repeated phrase detection, and comment filtering. Run via CLI or an interactive web dashboard.
+Fetch and analyze YouTube video comments. Score them with Claude AI to surface video topic ideas, filter low-quality comments, and manage what to keep or discard. Run via CLI or an interactive web dashboard.
 
 ## Features
 
-- **Repeated phrase detection** — Finds the most common multi-word phrases across all comments
-- **Top liked comments** — Ranked table of the 100 most-liked comments
 - **AI topic scoring** — Rates every comment 1–10 on video topic potential using Claude (Anthropic Batches API)
 - **Comment filtering** — Removes low-quality comments (spam, duplicates, emoji-only, etc.)
 - **Cross-report comment management** — Save, blacklist, or delete comments across all reports

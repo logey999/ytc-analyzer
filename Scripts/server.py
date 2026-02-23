@@ -35,7 +35,6 @@ from analyze_video import (
     extract_video_id,
     filter_low_value,
 )
-from create_report import find_repeated_phrases
 from comment_store import CommentStore
 from get_comments import get_comments
 import batch_scorer
@@ -397,7 +396,7 @@ def api_reports():
     return jsonify(results)
 
 
-# ── API: report data (video_info + comments + phrases) ───────────────────────
+# ── API: report data (video_info + comments) ─────────────────────────────────
 
 @app.get("/api/report-data/<path:report_path>")
 def api_report_data(report_path: str):
@@ -438,8 +437,6 @@ def api_report_data(report_path: str):
     total_saved = sum(1 for i in saved_store.all() if i.get("_reportPath") == report_path)
     total_deleted = sum(1 for c in deleted_store.all() if c.get("_reportPath") == report_path)
 
-    phrases = find_repeated_phrases(df)
-
     cols = ["id", "author", "like_count", "text"]
     if "author_channel_id" in df.columns:
         cols.append("author_channel_id")
@@ -461,7 +458,6 @@ def api_report_data(report_path: str):
     return jsonify({
         "video_info": video_info,
         "comments": comments_df.to_dict(orient="records"),
-        "phrases": phrases,
         "blacklist_count": total_blacklisted,
         "saved_count": total_saved,
         "deleted_count": total_deleted,

@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository.
 
 ## Project Overview
 
-**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with repeated phrase analysis, top liked comments, and optional Claude AI scoring for video topic potential. Two entry points: CLI (`analyze_video.py`) and Flask web dashboard (`server.py`).
+**YouTube Comments Analyzer** — Fetches YouTube video comments via the YouTube Data API v3 and generates HTML reports with all comments and Claude AI scoring for video topic potential. Two entry points: CLI (`analyze_video.py`) and Flask web dashboard (`server.py`).
 
 ## File Structure
 
@@ -40,7 +40,7 @@ js/
   event-bus.js        Pub/sub emitter for cross-component communication
   table-manager.js    TableManager class used by all comment table pages
   dashboard.js        Dashboard page (job submission, report list)
-  report.js           Report viewer (phrases chart, top comments, nav)
+  report.js           Report viewer (all comments table, AI score button, nav)
   aggregate.js        Aggregate view (all comments across reports)
   saved.js            Saved comments page
   blacklist.js        Blacklist page
@@ -48,7 +48,7 @@ js/
   filter-settings.js  Filter settings panel
 
 index.html            Dashboard — URL entry, job queue, report list
-report.html           Report viewer — video info, tabs, Chart.js chart
+report.html           Report viewer — video info, all comments table, AI score button
 aggregate.html        All comments across reports
 saved.html            Saved/kept comments
 blacklist.html        Discarded/blacklisted comments
@@ -74,10 +74,8 @@ deleted.html          Deleted comments
 
 ### Stage 3 — Report Generation (`create_report.py`)
 - `generate_report(video_info, df, output_path)` — writes self-contained HTML
-- `find_repeated_phrases(df)` — n-grams 3–8 words, 2+ occurrences, top 15
-- Chart embedded as base64 PNG (matplotlib, dark-themed)
 - CSS inlined from `../css/report.css`; falls back gracefully if missing
-- Report tabs: Top 100 Liked, All Comments (JS-paginated), Repeated Phrases
+- Shows all comments JS-paginated (200 per page), sorted by likes
 
 ### Web Dashboard (`server.py`)
 - Flask on `http://localhost:5000`; serves HTML pages and REST API
@@ -91,7 +89,7 @@ deleted.html          Deleted comments
 POST   /api/analyze                  Submit URL; returns {job_id} or {existing:{...}}
 GET    /api/progress/<job_id>        SSE stream of job progress
 GET    /api/reports                  List all reports with metadata
-GET    /api/report-data/<path>       Report data: video_info, comments, phrases
+GET    /api/report-data/<path>       Report data: video_info, comments
 DELETE /api/report/<path>            Delete report folder; bulk-moves comments
 GET    /api/counts                   Nav badge counts (saved, blacklist, deleted, aggregate)
 POST   /api/comment/save             Move comment → Saved
@@ -162,12 +160,6 @@ Filters ordered cheapest → most expensive; all default `True`:
 - `english_only` — drop non-English (requires `langdetect`)
 - `dedup` — remove exact and near-duplicates; `dedup_threshold` default 85% (requires `rapidfuzz`)
 
-### Phrase Extraction (`find_repeated_phrases`)
-- `_tokenize()`: regex `[a-z']+`, stop-word filtered, min 3 chars
-- Counts n-grams 3–8 words in a single pass
-- Suppresses sub-phrases covered by longer phrases with equal/higher count
-- Returns top 15 sorted by count (longer phrases win ties)
-
 ### CommentStore (`comment_store.py`)
 - Single-ownership: `_move_exclusive()` removes from all stores before adding to destination
 - Stored as Parquet at `Reports/{saved,blacklist,deleted}.parquet`
@@ -211,7 +203,7 @@ Rates comments 1–10 on **video topic potential** using Claude Haiku via the An
 
 - **YouTube Data API v3** over `yt-dlp`: official, stable, 10,000 free units/day
 - **Parquet** over CSV: typed columns, smaller files, faster reloads
-- **Self-contained HTML reports**: inlined CSS + base64 images, no external deps
+- **Self-contained HTML reports**: inlined CSS, no external deps
 - **Single-ownership comment model**: enforces one store per comment
 - **SSE for progress**: avoids polling; stream closes when job completes
 - **`api_reports.py`**: Blueprint skeleton not yet wired into `server.py`
