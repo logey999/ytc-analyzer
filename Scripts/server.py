@@ -63,8 +63,15 @@ _jobs_lock = threading.Lock()
 _FILTER_BOOL_KEYS = frozenset({
     "min_chars", "min_alpha", "min_words",
     "emoji_only", "url_only", "timestamp_only",
-    "repeat_char", "blacklist_match", "english_only", "dedup",
+    "repeat_char", "blacklist_match", "english_only",
+    "sentiment_filter", "dedup",
 })
+
+# Numeric filter keys: name → (type, min, max, default)
+_FILTER_NUM_KEYS: dict = {
+    "sentiment_threshold": (float, -1.0, 0.0, -0.5),
+    "dedup_threshold":     (int,   50,   100,  85),
+}
 
 
 # ── Analysis worker ───────────────────────────────────────────────────────────
@@ -80,6 +87,15 @@ def _run_analysis(url: str, job_id: str) -> None:
 
     # Build safe kwargs — only known bool keys, coerce to bool
     filter_kwargs = {k: bool(v) for k, v in raw_settings.items() if k in _FILTER_BOOL_KEYS}
+
+    # Add validated numeric settings (clamp to allowed range)
+    for key, (typ, lo, hi, _default) in _FILTER_NUM_KEYS.items():
+        if key in raw_settings:
+            try:
+                val = typ(raw_settings[key])
+                filter_kwargs[key] = max(lo, min(hi, val))
+            except (TypeError, ValueError):
+                pass
 
     try:
         video_id = extract_video_id(url)

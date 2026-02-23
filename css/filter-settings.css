@@ -93,6 +93,11 @@
   gap: 2px;
 }
 
+.filter-group {
+  display: flex;
+  flex-direction: column;
+}
+
 .filter-row {
   display: flex;
   align-items: center;
@@ -109,6 +114,12 @@
 .filter-row:hover {
   border-color: var(--border-2);
   background: var(--card);
+}
+
+/* When a filter row is directly followed by a slider row, square the bottom corners */
+.filter-row--has-slider {
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom-color: transparent;
 }
 
 .filter-info {
@@ -183,4 +194,90 @@
 .toggle-cb:checked + .toggle-track::after {
   transform: translateX(16px);
   background: #fff;
+}
+
+/* ── Slider sub-row ────────────────────────────────────────────────────────── */
+
+.filter-slider-row {
+  padding: 10px 14px 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 0.2s;
+}
+
+.filter-slider-row--disabled {
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+.filter-slider-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.filter-slider-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.filter-slider-detail {
+  font-size: 0.70rem;
+  color: var(--text-3);
+}
+
+.filter-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border-2);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.filter-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--red);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.filter-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.filter-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--red);
+  cursor: pointer;
+  border: none;
+}
+
+.filter-slider-val {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  min-width: 38px;
+  text-align: right;
 }
