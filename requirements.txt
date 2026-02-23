@@ -7,3 +7,4 @@ flask
 emoji
 langdetect
 rapidfuzz
+anthropic

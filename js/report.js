@@ -6,6 +6,7 @@ let _savedCount = 0;
 let _deletedCount = 0;
 let _pendingCount = 0;
 let _allTable = null;
+let _scoringPollTimer = null;
 
 // ── Helpers (in js/utils.js) ──────────────────────────────────────────────────
 // esc, escAttr, fmt, fmtN, secondsToHms, formatDate, animateRowOut
@@ -85,6 +86,7 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
   const allComments = comments || [];
   _pendingCount = allComments.length;
   const channel = String(vi.channel || '');
+  const cb = vi.claude_batch || null;
 
   document.title = `${vi.title || REPORT_PATH} — ytc-analyzer`;
 
@@ -120,6 +122,7 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
       <div class="strip-actions">
         ${yt_url ? `<a href="${escAttr(yt_url)}" class="nav-btn" target="_blank" rel="noopener">Watch &#8599;</a>` : ''}
         <button class="nav-btn" onclick="toggleDesc(this)">Description</button>
+        ${_renderScoringButton(cb)}
       </div>
       <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
     </div>
@@ -153,18 +156,28 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
     c._reportTitle = vi.title || REPORT_PATH;
   });
 
+  // Determine whether scoring columns should be visible
+  const scoringDone = cb && cb.status === 'ended';
+  const scoringActive = cb && (cb.status === 'in_progress' || cb.status === 'ended');
+
   // Setup TableManager for All Comments
   _allTable = new TableManager({
     panelId: 'pane-all',
     pageSize: CONFIG.ui.pageSize,
     columns: [
-      { id: 'text',       label: 'Comment' },
-      { id: 'like_count', label: 'Likes' },
-      { id: 'author',     label: 'Author' },
-      { id: 'video',      label: 'Video' },
+      { id: 'text',             label: 'Comment' },
+      { id: 'like_count',       label: 'Likes' },
+      { id: 'topic_rating',     label: 'Score' },
+      { id: 'topic_confidence', label: 'Conf%' },
+      { id: 'author',           label: 'Author' },
+      { id: 'video',            label: 'Video' },
     ],
     colPrefKey: 'ytca_cols_report_all',
-    defaultColPrefs: { video: false },
+    defaultColPrefs: {
+      video: false,
+      topic_rating: scoringActive,
+      topic_confidence: scoringActive,
+    },
     emptyMessage: 'No comments.',
     actions: [
       {
@@ -226,6 +239,11 @@ function renderReport({ video_info, comments, phrases, blacklist_count, saved_co
   // Phrases chart
   if (phrases && phrases.length) {
     renderPhrasesChart(phrases);
+  }
+
+  // Start polling if scoring is in progress
+  if (cb && cb.status === 'in_progress') {
+    _startScoringPoll();
   }
 }
 
@@ -308,6 +326,81 @@ function renderPhrasesChart(phrases) {
     },
   });
 }
+
+// ── AI Scoring ────────────────────────────────────────────────────────────────
+
+function _renderScoringButton(cb) {
+  const status = cb && cb.status;
+  if (!status) {
+    return `<button class="nav-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
+  }
+  if (status === 'in_progress') {
+    return `<span class="nav-btn disabled" id="scoring-status-btn">Scoring&#8230;</span>`;
+  }
+  if (status === 'ended') {
+    return `<span class="nav-btn disabled" id="scoring-status-btn" title="AI scoring complete">Scored &#10003;</span>`;
+  }
+  if (status === 'error') {
+    return `<button class="nav-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
+  }
+  return '';
+}
+
+async function runAiScoring() {
+  const btn = document.querySelector('.strip-actions .nav-btn:last-child');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+
+  try {
+    const res = await fetch(`/api/ai-score/${REPORT_PATH}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      alert('AI Scoring error: ' + data.error);
+      if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score'; }
+      return;
+    }
+    // Reload report to update button state and show pending columns
+    loadReport();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score'; }
+  }
+}
+
+function _startScoringPoll() {
+  if (_scoringPollTimer) clearInterval(_scoringPollTimer);
+  _scoringPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/ai-score/${REPORT_PATH}`);
+      const data = await res.json();
+      const status = data.claude_batch && data.claude_batch.status;
+      if (status === 'ended' || status === 'error') {
+        clearInterval(_scoringPollTimer);
+        _scoringPollTimer = null;
+        loadReport(); // Reload to show actual scores (or error state)
+      }
+    } catch (_) {}
+  }, 30_000); // poll every 30 s
+}
+
+// ── Cell renderer for scoring columns ─────────────────────────────────────────
+// TableManager renders cell values as text by default. topic_rating/topic_confidence
+// values of -1 mean "not yet scored" — show a muted placeholder instead.
+const _origRenderCell = typeof TableManager !== 'undefined'
+  ? TableManager.prototype._renderCell
+  : null;
+
+// Patch applied after TableManager is loaded (both are synchronous scripts)
+window.__patchScoringCells = function () {
+  if (!TableManager) return;
+  const orig = TableManager.prototype._renderCellValue;
+  TableManager.prototype._renderCellValue = function (col, value) {
+    if ((col === 'topic_rating' || col === 'topic_confidence') && (value === -1 || value === '-1' || value == null)) {
+      return '<span style="color:var(--text-3);font-size:0.75em">Pend.</span>';
+    }
+    if (orig) return orig.call(this, col, value);
+    return esc(String(value ?? ''));
+  };
+};
 
 // ── Error display ─────────────────────────────────────────────────────────────
 

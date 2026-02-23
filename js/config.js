@@ -14,11 +14,12 @@ const CONFIG = {
     saved: '/api/saved',
     blacklist: '/api/blacklist',
     deleted: '/api/deleted',
-analyze: '/api/analyze',
+    analyze: '/api/analyze',
     progress: '/api/progress',
     commentSave: '/api/comment/save',
     commentBlacklist: '/api/comment/blacklist',
     commentDelete: '/api/comment/delete',
+    aiScore: '/api/ai-score',
   },
 
   // Panel names
