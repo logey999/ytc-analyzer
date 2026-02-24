@@ -1,6 +1,24 @@
 # CLAUDE.md
 
-Guidance for AI assistants working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Development
+
+**Setup:**
+```bash
+python -m venv ytc-env
+source ytc-env/Scripts/activate  # Windows: ytc-env\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Run the server:**
+```bash
+cd Scripts
+python server.py
+# Open http://localhost:5000
+```
+
+No test suite exists in this project.
 
 ## Project Overview
 
@@ -111,6 +129,7 @@ POST   /api/ai-score/<path>          Submit batch scoring for one report (idempo
 GET    /api/ai-score/<path>          Return claude_batch block from _info.json
 POST   /api/ai-score-aggregate       Submit batch scoring for all unscored comments
 GET    /api/ai-score-aggregate       Return counts: eligible/pending/scored across all reports
+POST   /api/ai-score-poll            Trigger immediate poll of all in-progress batches (synchronous)
 ```
 
 ## Data Flow
@@ -141,7 +160,7 @@ generate_report() → {video_slug}_report_YYYY-MM-DD.html
 Reports/{channel_slug}/{video_slug}/{video_slug}_{type}_YYYY-MM-DD.{ext}
 ```
 - `channel_slug`: channel name lowercased, non-alphanumeric → `_`
-- `video_slug`: first 10 chars of slugified video title
+- `video_slug`: first 10 chars of slugified video title; if another video already occupies that folder, the first 8 chars of the video ID are appended (`{slug}_{video_id[:8]}`) to avoid collisions
 - Types: `comments` (`.parquet`), `report` (`.html`)
 - `_info.json` has no date suffix (one per video folder)
 - Re-running the same video creates new dated files; no overwrites
@@ -168,9 +187,9 @@ Filters ordered cheapest → most expensive; all default `True`:
 - Thread-safe via `_store_lock` (RLock) in `server.py`
 
 ### AI Scoring (`batch_scorer.py`)
-Rates comments 1–10 on **video topic potential** using Claude Haiku via the Anthropic Batches API (50% discount vs standard API).
+Rates comments 1–10 on **video topic potential** using `claude-haiku-4-5-20251001` via the Anthropic Batches API (50% discount vs standard API).
 
-- `submit_batch(df)` — chunks comments into groups of 100, submits to `/v1/messages/batches`, returns `(batch_id, comment_ids)`
+- `submit_batch(df, system_prompt=None)` — chunks comments into groups of `CHUNK_SIZE` (50), submits to `/v1/messages/batches`, returns `(batch_id, comment_ids)`; accepts optional custom prompt
 - `check_batch_status(batch_id)` — returns `processing_status` string; no token cost
 - `fetch_and_apply_results(batch_id, comment_ids, parquet_path)` — streams results, maps back to rows by ID, writes `topic_rating` and `topic_confidence` columns to Parquet
 
@@ -182,18 +201,25 @@ Rates comments 1–10 on **video topic potential** using Claude Haiku via the An
   "claude_batch": {
     "batch_id": "msgbatch_01abc...",
     "submitted_at": "2026-02-22T14:30:00Z",
-    "status": "in_progress" | "ended" | "error",
+    "status": "in_progress" | "ended" | "error" | "partial_failure",
     "comment_count": 847,
-    "chunk_size": 100,
-    "comment_ids": ["Ug4xABC...", "..."]
+    "chunk_size": 50,
+    "comment_ids": ["Ug4xABC...", "..."],
+    "retry_count": 0
   }
 }
 ```
 
-**Background polling daemon** (`_batch_poll_worker` in `server.py`): daemon thread started at server launch; scans all `_info.json` files every 15 minutes; collects results for any `"in_progress"` batch that has `processing_status == "ended"`; updates status to `"ended"` in `_info.json`.
+**Auto-retry:** After a batch ends, the poll daemon checks for still-unscored rows. If any exist and `retry_count == 0`, it automatically submits a new batch for those rows and sets `retry_count: 1`. If the retry submission fails, status is set to `"partial_failure"`.
+
+**Re-submission logic:** `POST /api/ai-score/<path>` blocks re-submission only if a batch is `"in_progress"`. If status is `"ended"` but unscored rows remain, re-submission is allowed for those rows. Accepts optional `{"prompt": "..."}` in the request body to use a custom system prompt.
+
+**Background polling daemon** (`_batch_poll_worker` in `server.py`): daemon thread started at server launch; scans all `_info.json` files every 15 minutes; collects results for any `"in_progress"` batch that has `processing_status == "ended"`; auto-retries once for unscored rows; updates status in `_info.json`.
+
+**Manual poll trigger:** `POST /api/ai-score-poll` — runs `_poll_all_batches()` synchronously; useful for testing without waiting 15 minutes.
 
 **Frontend integration:**
-- `report.js`: "✨ AI Score" button in video strip; polls `GET /api/ai-score/<path>` every 30s; score columns shown in All Comments table when scoring is active
+- `report.js`: "✨ AI Score" button in video strip; polls `GET /api/ai-score/<path>` every 30s; live icon updates reflect batch status; score columns shown in All Comments table when scoring is active
 - `aggregate.js`: "✨ AI Score All" button with confirmation modal; polls `GET /api/ai-score-aggregate` every 30s; score columns auto-shown when any comments are scored
 - API keys are provided via the dashboard settings panel (not `.env`); returns `{"error": "..."}` and degrades gracefully if missing
 

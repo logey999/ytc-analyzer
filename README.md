@@ -4,7 +4,7 @@ Fetch and analyze YouTube video comments. Score them with Claude AI to surface v
 
 ## Features
 
-- **AI topic scoring** — Rates every comment 1–10 on video topic potential using Claude (Anthropic Batches API)
+- **AI topic scoring** — Rates every comment 1–10 on video topic potential using Claude (Anthropic Batches API); auto-retries for any unscored comments; supports custom prompts
 - **Comment filtering** — Removes low-quality comments (spam, duplicates, emoji-only, etc.)
 - **Cross-report comment management** — Save, blacklist, or delete comments across all reports
 - **Async job queue** — Analyze multiple videos concurrently
