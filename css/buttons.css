@@ -199,6 +199,11 @@ button {
   cursor: not-allowed;
 }
 
+.nav-btn.btn-warning {
+  background: var(--yellow);
+  color: #000;
+}
+
 /* ── Tab button styles ───────────────────────────────────────────────────────── */
 
 .tab {

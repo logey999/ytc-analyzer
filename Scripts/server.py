@@ -124,6 +124,21 @@ def _run_analysis(url: str, job_id: str) -> None:
         channel_slug = _channel_slug(video_info.get("channel") or "unknown")
         slug = _video_slug(video_info.get("title") or video_id)
         folder = os.path.join(REPORTS_DIR, channel_slug, slug)
+
+        # Guard against slug collisions (e.g. channel with many similarly-titled videos).
+        # If the target folder already exists and belongs to a different video, append
+        # the first 8 chars of the video ID to make it unique.
+        candidate_info = os.path.join(folder, f"{slug}_info.json")
+        if os.path.exists(candidate_info):
+            try:
+                with open(candidate_info, "r", encoding="utf-8") as _f:
+                    _existing = json.load(_f)
+                if _existing.get("id") != video_id:
+                    slug = f"{slug}_{video_id[:8]}"
+                    folder = os.path.join(REPORTS_DIR, channel_slug, slug)
+            except Exception:
+                pass
+
         os.makedirs(folder, exist_ok=True)
 
         date_str = datetime.now().strftime("%Y-%m-%d")
@@ -271,10 +286,9 @@ def api_analyze():
                     .split("_comments_")[-1]
                     .replace(".parquet", "")
                 )
-                ch_slug = _channel_slug(video_info.get("channel") or "unknown")
                 return jsonify({
                     "existing": {
-                        "path": f"{ch_slug}/{slug}",
+                        "path": os.path.relpath(existing_folder, REPORTS_DIR).replace("\\", "/"),
                         "title": video_info.get("title", ""),
                         "comment_count": count,
                         "date": date_str,
@@ -900,7 +914,54 @@ def _poll_all_batches() -> None:
             if parquet:
                 batch_scorer.fetch_and_apply_results(batch_id, comment_ids, parquet)
 
-            info["claude_batch"]["status"] = "ended"
+            # Check if any comments remain unscored after applying results
+            unscored_df = None
+            if parquet:
+                try:
+                    df = pd.read_parquet(parquet)
+                    if "topic_rating" in df.columns:
+                        ratings = pd.to_numeric(df["topic_rating"], errors="coerce").fillna(-1)
+                        unscored_df = df[ratings < 1].copy()
+                    else:
+                        unscored_df = df.copy()
+                    if unscored_df.empty:
+                        unscored_df = None
+                except Exception:
+                    unscored_df = None
+
+            retry_count = cb.get("retry_count", 0)
+            if unscored_df is not None and retry_count == 0:
+                # Auto-retry once for unscored comments
+                try:
+                    new_batch_id, new_comment_ids = batch_scorer.submit_batch(unscored_df)
+                    info["claude_batch"] = {
+                        "batch_id": new_batch_id,
+                        "submitted_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "in_progress",
+                        "comment_count": len(unscored_df),
+                        "chunk_size": batch_scorer.CHUNK_SIZE,
+                        "comment_ids": new_comment_ids,
+                        "retry_count": 1,
+                    }
+                    logging.warning(
+                        "Batch %s had %d unscored comments; auto-retrying as %s",
+                        batch_id, len(unscored_df), new_batch_id,
+                    )
+                except Exception as retry_exc:
+                    logging.warning("Auto-retry batch submission failed: %s", retry_exc)
+                    info["claude_batch"]["status"] = "partial_failure"
+                    info["claude_batch"]["unscored_count"] = len(unscored_df)
+            elif unscored_df is not None and retry_count >= 1:
+                # Retry also left unscored comments — mark partial failure
+                info["claude_batch"]["status"] = "partial_failure"
+                info["claude_batch"]["unscored_count"] = len(unscored_df)
+                logging.warning(
+                    "Batch %s retry still left %d unscored; marking partial_failure",
+                    batch_id, len(unscored_df),
+                )
+            else:
+                info["claude_batch"]["status"] = "ended"
+
             with open(info_path, "w", encoding="utf-8") as f:
                 json.dump(info, f, ensure_ascii=False)
 

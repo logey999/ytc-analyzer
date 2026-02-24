@@ -17,7 +17,7 @@ import pandas as pd
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-CHUNK_SIZE = 100
+CHUNK_SIZE = 50
 _MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM_PROMPT = """\

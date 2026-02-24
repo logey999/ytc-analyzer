@@ -266,6 +266,9 @@ function _renderScoringButton(cb, hasUnscored = false) {
     } else {
       inner = `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
     }
+  } else if (status === 'partial_failure') {
+    const unscored = cb.unscored_count ? ` (${cb.unscored_count} unscored)` : '';
+    inner = `<button class="nav-btn btn-warning" id="ai-score-btn" onclick="runAiScoring()" title="Scoring partially failed${unscored} — click to retry remaining">&#9888; Partial Failure</button>`;
   } else if (status === 'error') {
     inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
   }
@@ -346,7 +349,7 @@ async function checkScoringNow() {
     const data = await res.json();
     const cb = data.claude_batch;
     const status = cb && cb.status;
-    if (status === 'ended' || status === 'error') {
+    if (status === 'ended' || status === 'error' || status === 'partial_failure') {
       if (_scoringPollTimer) { clearInterval(_scoringPollTimer); _scoringPollTimer = null; }
       await _applyFreshScores(cb);
     }
@@ -366,7 +369,7 @@ function _startScoringPoll() {
       const data = await res.json();
       const cb = data.claude_batch;
       const status = cb && cb.status;
-      if (status === 'ended' || status === 'error') {
+      if (status === 'ended' || status === 'error' || status === 'partial_failure') {
         clearInterval(_scoringPollTimer);
         _scoringPollTimer = null;
         await _applyFreshScores(cb);
