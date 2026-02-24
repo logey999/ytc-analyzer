@@ -210,8 +210,10 @@ async function checkScoringNow() {
   if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
   try {
     await fetch('/api/ai-score-poll', { method: 'POST' });
-    location.reload();
+    await aggTable.loadAggregate();
   } catch (e) {
+    console.error('Check scoring error:', e);
+  } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
   }
 }
@@ -225,7 +227,9 @@ function _startAggregateScoringPoll() {
       if (data.pending_count === 0) {
         clearInterval(_scoringPollTimer);
         _scoringPollTimer = null;
-        location.reload();
+        const btn = document.getElementById('ai-score-all-btn');
+        if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score All'; }
+        aggTable.loadAggregate();
       }
     } catch (_) {}
   }, 30_000);

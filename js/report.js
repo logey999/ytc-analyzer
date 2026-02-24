@@ -254,23 +254,27 @@ function _withContext(comment) {
 
 function _renderScoringButton(cb, hasUnscored = false) {
   const status = cb && cb.status;
+  let inner = '';
   if (!status) {
-    return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
-  }
-  if (status === 'in_progress') {
-    return `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>
-            <button class="nav-btn" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now">Check Now</button>`;
-  }
-  if (status === 'ended') {
+    inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
+  } else if (status === 'in_progress') {
+    inner = `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>
+             <button class="nav-btn" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now">Check Now</button>`;
+  } else if (status === 'ended') {
     if (hasUnscored) {
-      return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10024; Score Remaining</button>`;
+      inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10024; Score Remaining</button>`;
+    } else {
+      inner = `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
     }
-    return `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
+  } else if (status === 'error') {
+    inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
   }
-  if (status === 'error') {
-    return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
-  }
-  return '';
+  return `<span id="scoring-controls">${inner}</span>`;
+}
+
+function _updateScoringControls(cb, hasUnscored = false) {
+  const el = document.getElementById('scoring-controls');
+  if (el) el.outerHTML = _renderScoringButton(cb, hasUnscored);
 }
 
 async function runAiScoring() {
@@ -323,7 +327,8 @@ async function runAiScoring() {
           if (btn) { btn.disabled = false; }
           return;
         }
-        loadReport();
+        _updateScoringControls({ status: 'in_progress' });
+        _startScoringPoll();
       } catch (e) {
         alert('Network error: ' + e.message);
         if (btn) { btn.disabled = false; }
@@ -337,9 +342,19 @@ async function checkScoringNow() {
   if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
   try {
     await fetch('/api/ai-score-poll', { method: 'POST' });
-    loadReport(); // Reload to reflect any newly applied scores
+    const res = await fetch(`/api/ai-score/${REPORT_PATH}`);
+    const data = await res.json();
+    const cb = data.claude_batch;
+    const status = cb && cb.status;
+    if (status === 'ended' || status === 'error') {
+      if (_scoringPollTimer) { clearInterval(_scoringPollTimer); _scoringPollTimer = null; }
+      await _applyFreshScores(cb);
+    }
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
+    console.error('Check scoring error:', e);
+  } finally {
+    const checkBtn = document.getElementById('ai-score-check-btn');
+    if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check Now'; }
   }
 }
 
@@ -349,14 +364,39 @@ function _startScoringPoll() {
     try {
       const res = await fetch(`/api/ai-score/${REPORT_PATH}`);
       const data = await res.json();
-      const status = data.claude_batch && data.claude_batch.status;
+      const cb = data.claude_batch;
+      const status = cb && cb.status;
       if (status === 'ended' || status === 'error') {
         clearInterval(_scoringPollTimer);
         _scoringPollTimer = null;
-        loadReport(); // Reload to show actual scores (or error state)
+        await _applyFreshScores(cb);
       }
     } catch (_) {}
   }, 30_000); // poll every 30 s
+}
+
+async function _applyFreshScores(cb) {
+  try {
+    const res = await fetch('/api/report-data/' + REPORT_PATH);
+    if (!res.ok) return;
+    const data = await res.json();
+    const comments = data.comments || [];
+    comments.forEach(c => {
+      c._reportPath = REPORT_PATH;
+      c._reportTitle = (data.video_info && data.video_info.title) || REPORT_PATH;
+    });
+    const hasUnscored = cb && cb.status === 'ended' &&
+      comments.some(c => !c.topic_rating || Number(c.topic_rating) < 1);
+    // Show scoring columns when we have results
+    if (cb && cb.status === 'ended' && !hasUnscored && _allTable) {
+      _allTable.colPrefs.topic_rating = true;
+      _allTable.colPrefs.topic_confidence = true;
+      localStorage.setItem(_allTable.config.colPrefKey,
+        JSON.stringify(_allTable.colPrefs));
+    }
+    if (_allTable) _allTable.setData(comments);
+    _updateScoringControls(cb, hasUnscored);
+  } catch (_) {}
 }
 
 // ── Error display ─────────────────────────────────────────────────────────────
