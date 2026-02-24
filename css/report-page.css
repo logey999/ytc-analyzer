@@ -10,6 +10,10 @@ body {
 .container {
   padding: 10px 0 0;
   gap: 8px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 footer {

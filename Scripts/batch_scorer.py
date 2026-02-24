@@ -10,6 +10,7 @@ Usage (from server.py):
 """
 
 import json
+import logging
 import os
 
 import pandas as pd
@@ -17,7 +18,7 @@ import pandas as pd
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 CHUNK_SIZE = 100
-_MODEL = "claude-haiku-4-5"
+_MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM_PROMPT = """\
 You analyse comments on a YouTube video to identify video topic potential.
@@ -53,14 +54,15 @@ def _get_client():
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY not set. Add it to your .env file."
+            "Anthropic API key not set. Open Settings (gear icon in the dashboard) "
+            "and enter your Anthropic API key to enable AI scoring."
         )
     return anthropic.Anthropic(api_key=api_key)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def submit_batch(df: pd.DataFrame) -> tuple:
+def submit_batch(df: pd.DataFrame, system_prompt: str = None) -> tuple:
     """Submit a batch scoring job for the given DataFrame.
 
     Args:
@@ -87,6 +89,8 @@ def submit_batch(df: pd.DataFrame) -> tuple:
     texts = df["text"].fillna("").astype(str).tolist()
     comment_ids = df["id"].astype(str).tolist()
 
+    prompt = (system_prompt.strip() if system_prompt and system_prompt.strip() else None) or _SYSTEM_PROMPT
+
     requests = []
     for chunk_start in range(0, len(texts), CHUNK_SIZE):
         chunk = texts[chunk_start : chunk_start + CHUNK_SIZE]
@@ -97,8 +101,8 @@ def submit_batch(df: pd.DataFrame) -> tuple:
                 custom_id=f"chunk-{chunk_idx}",
                 params=MessageCreateParamsNonStreaming(
                     model=_MODEL,
-                    max_tokens=1024,
-                    system=_SYSTEM_PROMPT,
+                    max_tokens=4096,
+                    system=prompt,
                     messages=[{
                         "role": "user",
                         "content": f"Comments:\n{numbered}",
@@ -171,25 +175,36 @@ def fetch_and_apply_results(
 
     for result in client.messages.batches.results(batch_id):
         if result.result.type != "succeeded":
+            logging.warning("Batch %s chunk %s: result type=%s", batch_id, result.custom_id, result.result.type)
             continue
 
         # Decode chunk index from custom_id, e.g. "chunk-3" → 3
         try:
             chunk_idx = int(result.custom_id.split("-")[1])
         except (IndexError, ValueError):
+            logging.warning("Batch %s: unrecognised custom_id %r", batch_id, result.custom_id)
             continue
 
         start = chunk_idx * CHUNK_SIZE
 
+        msg = result.result.message
+        if msg.stop_reason == "max_tokens":
+            logging.warning(
+                "Batch %s chunk %s: output truncated (max_tokens). Chunk skipped — increase max_tokens.",
+                batch_id, result.custom_id,
+            )
+            continue
+
         try:
-            content = result.result.message.content[0].text
+            content = msg.content[0].text
             # Strip optional markdown fences (```json...``` or ```...```)
             stripped = content.strip()
             if stripped.startswith("```"):
                 stripped = stripped.split("\n", 1)[-1]
                 stripped = stripped.rsplit("```", 1)[0]
             ratings = json.loads(stripped)
-        except Exception:
+        except Exception as exc:
+            logging.warning("Batch %s chunk %s: failed to parse ratings: %s", batch_id, result.custom_id, exc)
             continue
 
         for i, rating_obj in enumerate(ratings):

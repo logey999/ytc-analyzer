@@ -376,6 +376,7 @@ def api_reports():
                 created_at = datetime.fromtimestamp(mtime).isoformat()
 
             rel_folder = os.path.relpath(folder, REPORTS_DIR).replace("\\", "/")
+            cb = info.get("claude_batch")
             results.append({
                 "path": rel_folder,
                 "title": info.get("title", ""),
@@ -388,6 +389,7 @@ def api_reports():
                 "saved_count": saved_by.get(rel_folder, 0),
                 "blacklist_count": blacklist_by.get(rel_folder, 0),
                 "deleted_count": deleted_by.get(rel_folder, 0),
+                "ai_score_status": cb.get("status") if cb else None,
             })
         except Exception:
             continue
@@ -684,7 +686,8 @@ def api_ai_score_submit(report_path: str):
         info = json.load(f)
 
     existing = info.get("claude_batch")
-    if existing and existing.get("status") in ("in_progress", "ended"):
+    # Block re-submission only if a batch is already running
+    if existing and existing.get("status") == "in_progress":
         return jsonify({"claude_batch": existing})
 
     slug = _video_slug(info.get("title", "unknown"))
@@ -698,8 +701,17 @@ def api_ai_score_submit(report_path: str):
     except Exception as exc:
         return jsonify({"error": f"could not load parquet: {exc}"}), 500
 
+    # If previously marked ended but unscored rows remain, allow re-submission for those rows
+    if existing and existing.get("status") == "ended":
+        if "topic_rating" in df.columns:
+            ratings = pd.to_numeric(df["topic_rating"], errors="coerce").fillna(-1)
+            df = df[ratings < 1].copy()
+        if df.empty:
+            return jsonify({"claude_batch": existing})  # Truly all done
+
+    custom_prompt = (request.get_json(silent=True) or {}).get("prompt") or None
     try:
-        batch_id, comment_ids = batch_scorer.submit_batch(df)
+        batch_id, comment_ids = batch_scorer.submit_batch(df, system_prompt=custom_prompt)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
@@ -785,6 +797,7 @@ def api_ai_score_aggregate_submit():
     """
     batches_submitted = 0
     comments_submitted = 0
+    custom_prompt = (request.get_json(silent=True) or {}).get("prompt") or None
 
     pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
     for info_path in glob.glob(pattern, recursive=True):
@@ -815,7 +828,7 @@ def api_ai_score_aggregate_submit():
                 continue
 
             try:
-                batch_id, comment_ids = batch_scorer.submit_batch(df_unscored)
+                batch_id, comment_ids = batch_scorer.submit_batch(df_unscored, system_prompt=custom_prompt)
             except RuntimeError as exc:
                 return jsonify({"error": str(exc)}), 400
             except Exception as exc:
@@ -840,6 +853,18 @@ def api_ai_score_aggregate_submit():
             continue
 
     return jsonify({"batches_submitted": batches_submitted, "comments_submitted": comments_submitted})
+
+
+# ── API: manual poll trigger ──────────────────────────────────────────────────
+
+@app.post("/api/ai-score-poll")
+def api_ai_score_poll():
+    """Trigger an immediate poll of all in-progress batches. Runs synchronously."""
+    try:
+        _poll_all_batches()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ── Background batch poller ────────────────────────────────────────────────────
@@ -895,6 +920,8 @@ def _poll_all_batches() -> None:
 
 def _batch_poll_worker() -> None:
     """Daemon thread: poll in-progress batches every 15 minutes."""
+    # Poll immediately on startup so completed batches are picked up after a restart
+    _poll_all_batches()
     while True:
         time.sleep(_POLL_INTERVAL)
         _poll_all_batches()
@@ -977,15 +1004,31 @@ def api_env_keys_post():
 @app.get("/api/counts")
 def api_counts():
     """Return comment counts for each store and aggregate total (for nav badges)."""
+    classified_ids = set()
+    for store in (saved_store, blacklist_store, deleted_store):
+        for c in store.all():
+            cid = c.get("id")
+            if cid:
+                classified_ids.add(cid)
+
     aggregate_total = 0
-    for parquet_path in glob.glob(os.path.join(REPORTS_DIR, "**", "*.parquet"), recursive=True):
-        # Skip the root-level store parquets (saved/blacklist/deleted)
-        if os.path.dirname(parquet_path) == REPORTS_DIR:
-            continue
+    for info_path in glob.glob(os.path.join(REPORTS_DIR, "**", "*_info.json"), recursive=True):
         try:
-            aggregate_total += pq.read_metadata(parquet_path).num_rows
+            with open(info_path, "r", encoding="utf-8") as f:
+                info = json.load(f)
+            folder = os.path.dirname(info_path)
+            slug = _video_slug(info.get("title", "unknown"))
+            parquet = _find_latest_parquet(folder, slug)
+            if not parquet:
+                continue
+            if classified_ids:
+                df_ids = pd.read_parquet(parquet, columns=["id"])
+                aggregate_total += int((~df_ids["id"].isin(classified_ids)).sum())
+            else:
+                aggregate_total += pq.read_metadata(parquet).num_rows
         except Exception:
             pass
+
     return jsonify({
         "saved": len(saved_store.all()),
         "blacklist": len(blacklist_store.all()),

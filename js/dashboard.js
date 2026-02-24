@@ -118,6 +118,7 @@ function buildReportCardHTML(r, isNew = false) {
     <button class="report-card-delete-btn" title="Delete report"
       data-path="${pathAttr}" data-title="${titleAttr}"
       onclick="openDeleteReportModal(event, this)">&#10005;</button>
+    ${r.ai_score_status === 'in_progress' ? `<span class="ai-scoring-badge" title="AI scoring in progress…">✨</span>` : ''}
     <span class="report-card-arrow">&#8594;</span>
   </a>`;
 }

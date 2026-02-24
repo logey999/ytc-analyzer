@@ -35,28 +35,13 @@
 
 <div class="page-toolbar">
   <button class="nav-btn" id="ai-score-all-btn" onclick="openAiScoreModal()">&#10024; AI Score All</button>
+  <button class="nav-btn" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now">Check Now</button>
 </div>
 
 <div class="container" id="main-content" style="padding: 12px; flex: 1; overflow-y: auto;">
   <div class="loading-msg">Loading comments…</div>
 </div>
 
-<!-- AI Score All modal -->
-<div class="modal-overlay" id="ai-score-modal" onclick="closeAiScoreModal(event)">
-  <div class="modal-box" style="max-width:520px">
-    <div class="modal-header">
-      <span class="modal-title">AI Score — All Reports</span>
-      <button class="modal-close" onclick="closeAiScoreModal()">&times;</button>
-    </div>
-    <div id="ai-score-modal-body">
-      <p class="modal-desc">Loading…</p>
-    </div>
-    <div class="modal-actions">
-      <button class="nav-btn" onclick="closeAiScoreModal()">Cancel</button>
-      <button class="nav-btn" id="ai-score-confirm-btn" onclick="confirmAiScoring()" disabled>Score</button>
-    </div>
-  </div>
-</div>
 
 <script src="/js/aggregate.js"></script>
 </body>

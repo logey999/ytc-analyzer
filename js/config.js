@@ -37,14 +37,16 @@ const CONFIG = {
     report: [
       { id: 'text', label: 'Comment' },
       { id: 'like_count', label: 'Likes' },
+      { id: 'topic_rating', label: 'AIScore' },
+      { id: 'topic_confidence', label: 'AIConf%' },
       { id: 'author', label: 'Author' },
     ],
     // Aggregate view columns
     aggregate: [
       { id: 'text', label: 'Comment' },
       { id: 'like_count', label: 'Likes' },
-      { id: 'topic_rating', label: 'Score' },
-      { id: 'topic_confidence', label: 'Conf%' },
+      { id: 'topic_rating', label: 'AIScore' },
+      { id: 'topic_confidence', label: 'AIConf%' },
       { id: 'author', label: 'Author' },
       { id: 'video', label: 'Video' },
     ],

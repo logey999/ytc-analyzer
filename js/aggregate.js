@@ -86,6 +86,10 @@ aggTable.loadAggregate = async function() {
 
     const results = await Promise.all(reportDataPromises);
 
+    // Detect if any reports have scoring in progress
+    const anyInProgress = reports.some(r => r.ai_score_status === 'in_progress');
+    this.config.scoringInProgress = anyInProgress;
+
     // Merge comments from all reports; detect if any are scored
     let hasScores = false;
     for (const result of results) {
@@ -100,8 +104,8 @@ aggTable.loadAggregate = async function() {
       }
     }
 
-    // Auto-show scoring columns when scores exist, unless user has set a preference
-    if (hasScores) {
+    // Auto-show scoring columns when scores exist or scoring is in progress
+    if (hasScores || anyInProgress) {
       const savedPrefs = JSON.parse(localStorage.getItem(this.config.colPrefKey) || '{}');
       if (!('topic_rating' in savedPrefs)) {
         this.colPrefs.topic_rating = true;
@@ -136,102 +140,79 @@ document.addEventListener('DOMContentLoaded', () => {
 let _scoringPollTimer = null;
 
 async function openAiScoreModal() {
-  const modal = document.getElementById('ai-score-modal');
-  const body = document.getElementById('ai-score-modal-body');
-  const confirmBtn = document.getElementById('ai-score-confirm-btn');
+  // Show a loading state briefly while fetching counts
+  const scoreAllBtn = document.getElementById('ai-score-all-btn');
+  if (scoreAllBtn) { scoreAllBtn.disabled = true; scoreAllBtn.textContent = 'Loading…'; }
 
-  body.innerHTML = '<p class="modal-desc">Loading…</p>';
-  confirmBtn.disabled = true;
-  confirmBtn.textContent = 'Score';
-  modal.classList.add('open');
+  let bodyHtml = '<p class="modal-desc" style="color:var(--text-3)">Checking scoring status…</p>';
+  let eligible_count = 0;
+  let submitLabel = 'Nothing to score';
+  let submitDisabled = true;
 
   try {
     const res = await fetch(CONFIG.api.aiScoreAggregate);
     const data = await res.json();
-    const { eligible_count, eligible_reports, pending_count, pending_reports, scored_count } = data;
+    const { eligible_count: ec, eligible_reports, pending_count, pending_reports, scored_count } = data;
+    eligible_count = ec || 0;
 
     if (eligible_count === 0 && pending_count === 0) {
-      body.innerHTML = `<p class="modal-desc">
-        <strong>Nothing to score.</strong><br>
+      bodyHtml = `<p class="modal-desc"><strong>Nothing to score.</strong><br>
         ${scored_count > 0
           ? `All ${scored_count.toLocaleString()} comments have already been scored.`
-          : 'No comments are available for scoring.'}
-      </p>`;
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Nothing to score';
-      return;
+          : 'No comments are available for scoring.'}</p>`;
+    } else {
+      bodyHtml = '';
+      if (eligible_count > 0) {
+        bodyHtml += `<p class="modal-desc"><strong>${eligible_count.toLocaleString()} comment${eligible_count !== 1 ? 's' : ''}</strong>
+          across <strong>${eligible_reports} report${eligible_reports !== 1 ? 's' : ''}</strong> will be submitted.</p>`;
+      }
+      if (scored_count > 0) {
+        bodyHtml += `<p class="modal-desc">Already scored: <strong>${scored_count.toLocaleString()}</strong> — will be skipped.</p>`;
+      }
+      if (pending_count > 0) {
+        bodyHtml += `<p class="modal-desc">Pending: <strong>${pending_count.toLocaleString()}</strong> across ${pending_reports} report${pending_reports !== 1 ? 's' : ''} — will be skipped.</p>`;
+      }
+      submitLabel = eligible_count > 0 ? `Score ${eligible_count.toLocaleString()} Comments` : 'Nothing to score';
+      submitDisabled = eligible_count === 0;
     }
-
-    let html = '';
-    if (eligible_count > 0) {
-      html += `<p class="modal-desc">
-        <strong>${eligible_count.toLocaleString()} comment${eligible_count !== 1 ? 's' : ''}</strong>
-        across <strong>${eligible_reports} report${eligible_reports !== 1 ? 's' : ''}</strong>
-        will be submitted for AI scoring.
-      </p>`;
-    }
-    if (scored_count > 0) {
-      html += `<p class="modal-desc">
-        Already scored: &nbsp;<strong>${scored_count.toLocaleString()} comments</strong> &mdash; will be skipped.
-      </p>`;
-    }
-    if (pending_count > 0) {
-      html += `<p class="modal-desc">
-        Pending batches: &nbsp;<strong>${pending_count.toLocaleString()} comments</strong>
-        across ${pending_reports} report${pending_reports !== 1 ? 's' : ''} &mdash; will be skipped.
-      </p>`;
-    }
-    html += `<p class="modal-desc" style="margin-top:4px;color:var(--text-3)">
-      Scoring uses the Anthropic Batches API. Results are written back automatically when ready.
-    </p>`;
-
-    body.innerHTML = html;
-    confirmBtn.disabled = eligible_count === 0;
-    confirmBtn.textContent = eligible_count > 0
-      ? `Score ${eligible_count.toLocaleString()} Comments`
-      : 'Nothing to score';
   } catch (e) {
-    body.innerHTML = `<p class="modal-desc" style="color:#f87171">Failed to load status: ${esc(e.message)}</p>`;
-    confirmBtn.disabled = true;
+    bodyHtml = `<p class="modal-desc" style="color:#f87171">Failed to load status: ${esc(e.message)}</p>`;
+  } finally {
+    if (scoreAllBtn) { scoreAllBtn.disabled = false; scoreAllBtn.textContent = '✨ AI Score All'; }
   }
+
+  showAiPromptModal({
+    title: '✨ AI Score All',
+    bodyHtml,
+    submitLabel,
+    submitDisabled,
+    onConfirm: async (prompt) => {
+      try {
+        const res = await fetch(CONFIG.api.aiScoreAggregate, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = await res.json();
+        if (data.error) { alert('AI Scoring error: ' + data.error); return; }
+        const btn = document.getElementById('ai-score-all-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Scoring…'; }
+        _startAggregateScoringPoll();
+      } catch (e) {
+        alert('Network error: ' + e.message);
+      }
+    },
+  });
 }
 
-function closeAiScoreModal(event) {
-  if (event && event.target !== document.getElementById('ai-score-modal')) return;
-  document.getElementById('ai-score-modal').classList.remove('open');
-}
-
-async function confirmAiScoring() {
-  const confirmBtn = document.getElementById('ai-score-confirm-btn');
-  const body = document.getElementById('ai-score-modal-body');
-  confirmBtn.disabled = true;
-  confirmBtn.textContent = 'Submitting…';
-
+async function checkScoringNow() {
+  const btn = document.getElementById('ai-score-check-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
   try {
-    const res = await fetch(CONFIG.api.aiScoreAggregate, { method: 'POST' });
-    const data = await res.json();
-
-    if (data.error) {
-      body.innerHTML += `<p class="modal-desc" style="color:#f87171">Error: ${esc(data.error)}</p>`;
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'Retry';
-      return;
-    }
-
-    document.getElementById('ai-score-modal').classList.remove('open');
-
-    // Update toolbar button state
-    const scoreAllBtn = document.getElementById('ai-score-all-btn');
-    if (scoreAllBtn) {
-      scoreAllBtn.disabled = true;
-      scoreAllBtn.textContent = 'Scoring\u2026';
-    }
-
-    _startAggregateScoringPoll();
+    await fetch('/api/ai-score-poll', { method: 'POST' });
+    location.reload();
   } catch (e) {
-    body.innerHTML += `<p class="modal-desc" style="color:#f87171">Network error: ${esc(e.message)}</p>`;
-    confirmBtn.disabled = false;
-    confirmBtn.textContent = 'Retry';
+    if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
   }
 }
 

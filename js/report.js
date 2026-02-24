@@ -87,6 +87,9 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
   _pendingCount = allComments.length;
   const channel = String(vi.channel || '');
   const cb = vi.claude_batch || null;
+  // Detect partial scoring: status=ended but some comments still have rating=-1
+  const hasUnscored = cb && cb.status === 'ended' &&
+    allComments.some(c => !c.topic_rating || Number(c.topic_rating) < 1);
 
   document.title = `${vi.title || REPORT_PATH} — ytc-analyzer`;
 
@@ -122,7 +125,7 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
       <div class="strip-actions">
         ${yt_url ? `<a href="${escAttr(yt_url)}" class="nav-btn" target="_blank" rel="noopener">Watch &#8599;</a>` : ''}
         <button class="nav-btn" onclick="toggleDesc(this)">Description</button>
-        ${_renderScoringButton(cb)}
+        ${_renderScoringButton(cb, hasUnscored)}
       </div>
       <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
     </div>
@@ -153,8 +156,8 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
     columns: [
       { id: 'text',             label: 'Comment' },
       { id: 'like_count',       label: 'Likes' },
-      { id: 'topic_rating',     label: 'Score' },
-      { id: 'topic_confidence', label: 'Conf%' },
+      { id: 'topic_rating',     label: 'AIScore' },
+      { id: 'topic_confidence', label: 'AIConf%' },
       { id: 'author',           label: 'Author' },
       { id: 'video',            label: 'Video' },
     ],
@@ -164,6 +167,7 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
       topic_rating: scoringActive,
       topic_confidence: scoringActive,
     },
+    scoringInProgress: cb && cb.status === 'in_progress',
     emptyMessage: 'No comments.',
     actions: [
       {
@@ -248,15 +252,19 @@ function _withContext(comment) {
 
 // ── AI Scoring ────────────────────────────────────────────────────────────────
 
-function _renderScoringButton(cb) {
+function _renderScoringButton(cb, hasUnscored = false) {
   const status = cb && cb.status;
   if (!status) {
     return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
   }
   if (status === 'in_progress') {
-    return `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>`;
+    return `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>
+            <button class="nav-btn" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now">Check Now</button>`;
   }
   if (status === 'ended') {
+    if (hasUnscored) {
+      return `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10024; Score Remaining</button>`;
+    }
     return `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
   }
   if (status === 'error') {
@@ -267,21 +275,71 @@ function _renderScoringButton(cb) {
 
 async function runAiScoring() {
   const btn = document.getElementById('ai-score-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+  let bodyHtml = '';
+  let submitLabel = 'Start Scoring';
+  let submitDisabled = false;
 
   try {
-    const res = await fetch(`/api/ai-score/${REPORT_PATH}`, { method: 'POST' });
-    const data = await res.json();
-    if (data.error) {
-      alert('AI Scoring error: ' + data.error);
-      if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score'; }
-      return;
+    const data = _allTable ? _allTable.data : [];
+    const total = data.length;
+    const scored = data.filter(c => Number(c.topic_rating) >= 1).length;
+    const unscored = total - scored;
+
+    if (unscored === 0 && scored === 0) {
+      bodyHtml = `<p class="modal-desc"><strong>${total.toLocaleString()} comment${total !== 1 ? 's' : ''}</strong> will be submitted for AI scoring.</p>`;
+    } else {
+      if (unscored > 0) {
+        bodyHtml += `<p class="modal-desc"><strong>${unscored.toLocaleString()} comment${unscored !== 1 ? 's' : ''}</strong> will be submitted for AI scoring.</p>`;
+      }
+      if (scored > 0) {
+        bodyHtml += `<p class="modal-desc">Already scored: <strong>${scored.toLocaleString()}</strong> — will be skipped.</p>`;
+      }
+      submitLabel = unscored > 0 ? `Score ${unscored.toLocaleString()} Comments` : 'Nothing to score';
+      submitDisabled = unscored === 0;
     }
-    // Reload report to update button state and show pending columns
-    loadReport();
+    bodyHtml += `<p class="modal-desc" style="color:var(--text-3)">Scoring uses the Anthropic Batches API. Results are written back automatically when ready.</p>`;
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+
+  showAiPromptModal({
+    title: '✨ AI Score',
+    bodyHtml,
+    submitLabel,
+    submitDisabled,
+    onConfirm: async (prompt) => {
+      if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+      try {
+        const res = await fetch(`/api/ai-score/${REPORT_PATH}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          alert('AI Scoring error: ' + data.error);
+          if (btn) { btn.disabled = false; }
+          return;
+        }
+        loadReport();
+      } catch (e) {
+        alert('Network error: ' + e.message);
+        if (btn) { btn.disabled = false; }
+      }
+    },
+  });
+}
+
+async function checkScoringNow() {
+  const btn = document.getElementById('ai-score-check-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  try {
+    await fetch('/api/ai-score-poll', { method: 'POST' });
+    loadReport(); // Reload to reflect any newly applied scores
   } catch (e) {
-    alert('Network error: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
   }
 }
 

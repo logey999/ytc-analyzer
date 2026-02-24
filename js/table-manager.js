@@ -166,9 +166,13 @@ class TableManager {
         val = fmtN(val);
       } else if (col.id === 'topic_rating' || col.id === 'topic_confidence') {
         const n = Number(val);
-        val = (isNaN(n) || n < 1)
-          ? '<span style="color:var(--text-3);font-size:0.75em">Pend.</span>'
-          : esc(String(val));
+        if (isNaN(n) || n < 1) {
+          val = this.config.scoringInProgress
+            ? '<span class="ai-pending" title="AI scoring in progress…">✨</span>'
+            : '<span style="color:var(--text-3);font-size:0.75em">N/A</span>';
+        } else {
+          val = esc(String(val));
+        }
       } else {
         val = esc(val);
       }

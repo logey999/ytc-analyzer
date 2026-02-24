@@ -1,7 +1,8 @@
 /* ── Table Styles ─────────────────────────────────────────────────────────────── */
 
 /* Panel containers rendered by TableManager */
-#main-content {
+#main-content,
+#pane-all {
   display: flex;
   flex-direction: column;
   flex: 1;
