@@ -8,3 +8,4 @@ emoji
 langdetect
 rapidfuzz
 anthropic
+vaderSentiment

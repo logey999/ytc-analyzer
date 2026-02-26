@@ -24,6 +24,7 @@ ENV/
 env/
 .DS_Store
 Reports/*/
+Reports/*.parquet
 !Reports/.gitkeep
 ytc-env/
 myenv/
