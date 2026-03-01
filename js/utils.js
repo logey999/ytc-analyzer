@@ -108,7 +108,7 @@ function esc(s) {
 }
 
 function escAttr(s) {
-  return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ── Formatting ─────────────────────────────────────────────────────────────────

@@ -59,9 +59,24 @@ saved_store = CommentStore(SAVED_PATH, _store_lock)
 blacklist_store = CommentStore(BLACKLIST_PATH, _store_lock)
 deleted_store = CommentStore(DELETED_PATH, _store_lock)
 
-# Job registry: job_id → {queue, status, report_path, title, filter_settings}
+# Job registry: job_id → {queue, status, report_path, title, filter_settings, finished_at}
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
+_JOB_TTL = 3600  # keep finished jobs for 1 hour
+_MAX_CONCURRENT_JOBS = 4
+_job_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
+
+
+def _cleanup_stale_jobs() -> None:
+    """Remove finished jobs older than _JOB_TTL seconds."""
+    now = time.time()
+    with _jobs_lock:
+        stale = [
+            jid for jid, j in _jobs.items()
+            if j.get("finished_at") and now - j["finished_at"] > _JOB_TTL
+        ]
+        for jid in stale:
+            del _jobs[jid]
 
 # Valid boolean keys that can be forwarded from the frontend to filter_low_value()
 _FILTER_BOOL_KEYS = frozenset({
@@ -87,6 +102,14 @@ def _send(q: queue.Queue, data: dict) -> None:
 
 
 def _run_analysis(url: str, job_id: str) -> None:
+    _job_semaphore.acquire()
+    try:
+        _run_analysis_inner(url, job_id)
+    finally:
+        _job_semaphore.release()
+
+
+def _run_analysis_inner(url: str, job_id: str) -> None:
     with _jobs_lock:
         q = _jobs[job_id]["queue"]
         raw_settings = _jobs[job_id].get("filter_settings") or {}
@@ -192,6 +215,7 @@ def _run_analysis(url: str, job_id: str) -> None:
             _jobs[job_id]["status"] = "done"
             _jobs[job_id]["report_path"] = report_path
             _jobs[job_id]["title"] = video_info.get("title", "")
+            _jobs[job_id]["finished_at"] = time.time()
 
         _send(q, {
             "done": True,
@@ -205,6 +229,7 @@ def _run_analysis(url: str, job_id: str) -> None:
     except Exception as exc:
         with _jobs_lock:
             _jobs[job_id]["status"] = "error"
+            _jobs[job_id]["finished_at"] = time.time()
         _send(q, {"error": str(exc)})
 
     finally:
@@ -278,7 +303,7 @@ def api_analyze():
             parquet = _find_latest_parquet(existing_folder, slug)
             if parquet:
                 try:
-                    count = len(pd.read_parquet(parquet, columns=["id"]))
+                    count = pq.read_metadata(parquet).num_rows
                 except Exception:
                     count = 0
                 date_str = (
@@ -294,6 +319,9 @@ def api_analyze():
                         "date": date_str,
                     }
                 })
+
+    # Clean up old finished jobs before adding new ones
+    _cleanup_stale_jobs()
 
     # Start a fresh fetch job
     job_id = str(uuid.uuid4())
@@ -376,7 +404,7 @@ def api_reports():
                     .replace(".parquet", "")
                 )
                 try:
-                    count = len(pd.read_parquet(latest, columns=["id"]))
+                    count = pq.read_metadata(latest).num_rows
                 except Exception:
                     count = 0
             else:
@@ -414,9 +442,19 @@ def api_reports():
 
 # ── API: report data (video_info + comments) ─────────────────────────────────
 
+def _safe_report_folder(report_path: str):
+    """Resolve report_path under REPORTS_DIR; return None if it escapes."""
+    folder = os.path.realpath(os.path.join(REPORTS_DIR, report_path))
+    if not folder.startswith(os.path.realpath(REPORTS_DIR) + os.sep):
+        return None
+    return folder
+
+
 @app.get("/api/report-data/<path:report_path>")
 def api_report_data(report_path: str):
-    folder = os.path.join(REPORTS_DIR, report_path)
+    folder = _safe_report_folder(report_path)
+    if folder is None:
+        return jsonify({"error": "invalid path"}), 400
 
     info_files = glob.glob(os.path.join(folder, "*_info.json"))
     if not info_files:
@@ -436,22 +474,28 @@ def api_report_data(report_path: str):
     )
     df = df_raw.copy()
 
-    # Filter any legacy classified comments still in parquet
+    # Read each store once and compute all needed values
     classified_ids = set()
-    for store in (saved_store, blacklist_store, deleted_store):
-        for c in store.all():
-            classified_ids.add(c.get("id"))
-    total_blacklisted = sum(
-        1 for c in blacklist_store.all() if c.get("_reportPath") == report_path
-    )
+    total_saved = 0
+    total_blacklisted = 0
+    total_deleted = 0
+    for c in saved_store.all():
+        classified_ids.add(c.get("id"))
+        if c.get("_reportPath") == report_path:
+            total_saved += 1
+    for c in blacklist_store.all():
+        classified_ids.add(c.get("id"))
+        if c.get("_reportPath") == report_path:
+            total_blacklisted += 1
+    for c in deleted_store.all():
+        classified_ids.add(c.get("id"))
+        if c.get("_reportPath") == report_path:
+            total_deleted += 1
+
     if classified_ids and "id" in df.columns:
         df = df[~df["id"].isin(classified_ids)]
 
     df = df.sort_values("like_count", ascending=False).reset_index(drop=True)
-
-    # Count saved/deleted comments from stores
-    total_saved = sum(1 for i in saved_store.all() if i.get("_reportPath") == report_path)
-    total_deleted = sum(1 for c in deleted_store.all() if c.get("_reportPath") == report_path)
 
     cols = ["id", "author", "like_count", "text"]
     if "author_channel_id" in df.columns:
@@ -503,11 +547,12 @@ def _move_exclusive(comment: dict, dest_store: CommentStore) -> None:
     """Enforce single ownership: remove from all stores + parquet, then add to dest."""
     cid = comment.get("id")
     report_path = comment.get("_reportPath", "")
-    for store in (saved_store, blacklist_store, deleted_store):
-        store.remove(cid)
-    if report_path:
-        _remove_from_parquet(cid, report_path)
-    dest_store.add(comment)
+    with _store_lock:
+        for store in (saved_store, blacklist_store, deleted_store):
+            store.remove(cid)
+        if report_path:
+            _remove_from_parquet(cid, report_path)
+        dest_store.add(comment)
 
 
 # ── API: comment actions (blacklist, save, delete) ────────────────────────────
@@ -614,7 +659,9 @@ def api_report_delete(report_path: str):
     if disposition not in ("blacklist", "deleted"):
         return jsonify({"error": "disposition must be 'blacklist' or 'deleted'"}), 400
 
-    folder = os.path.join(REPORTS_DIR, report_path)
+    folder = _safe_report_folder(report_path)
+    if folder is None:
+        return jsonify({"error": "invalid path"}), 400
     if not os.path.isdir(folder):
         return jsonify({"error": "report not found"}), 404
 
@@ -674,7 +721,9 @@ def api_report_delete(report_path: str):
 @app.get("/api/ai-score/<path:report_path>")
 def api_ai_score_status(report_path: str):
     """Return the current claude_batch block from _info.json for a report."""
-    folder = os.path.join(REPORTS_DIR, report_path)
+    folder = _safe_report_folder(report_path)
+    if folder is None:
+        return jsonify({"error": "invalid path"}), 400
     info_files = glob.glob(os.path.join(folder, "*_info.json"))
     if not info_files:
         return jsonify({"error": "report not found"}), 404
@@ -690,7 +739,9 @@ def api_ai_score_submit(report_path: str):
     Idempotent: if a batch is already in_progress or ended, returns the
     current claude_batch block without re-submitting.
     """
-    folder = os.path.join(REPORTS_DIR, report_path)
+    folder = _safe_report_folder(report_path)
+    if folder is None:
+        return jsonify({"error": "invalid path"}), 400
     info_files = glob.glob(os.path.join(folder, "*_info.json"))
     if not info_files:
         return jsonify({"error": "report not found"}), 404
@@ -884,10 +935,20 @@ def api_ai_score_poll():
 # ── Background batch poller ────────────────────────────────────────────────────
 
 _POLL_INTERVAL = 15 * 60  # 15 minutes
+_poll_lock = threading.Lock()
 
 
 def _poll_all_batches() -> None:
     """Check all in-progress batch jobs and collect results for ended ones."""
+    if not _poll_lock.acquire(blocking=False):
+        return  # another poll is already running
+    try:
+        _poll_all_batches_inner()
+    finally:
+        _poll_lock.release()
+
+
+def _poll_all_batches_inner() -> None:
     pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
     for info_path in glob.glob(pattern, recursive=True):
         try:
@@ -988,9 +1049,10 @@ def _batch_poll_worker() -> None:
         _poll_all_batches()
 
 
-# Start background poller (one thread, survives app reloads in non-debug mode)
-_poller_thread = threading.Thread(target=_batch_poll_worker, daemon=True, name="batch-poller")
-_poller_thread.start()
+def _start_poller() -> None:
+    """Start the background batch poller thread (call once from main)."""
+    t = threading.Thread(target=_batch_poll_worker, daemon=True, name="batch-poller")
+    t.start()
 
 
 @app.get("/api/env-keys")
@@ -1102,9 +1164,10 @@ def api_counts():
 
 if __name__ == "__main__":
     os.makedirs(REPORTS_DIR, exist_ok=True)
+    _start_poller()
     print()
     print("=" * 50)
     print("  ytc-analyzer  ->  http://localhost:5000")
     print("=" * 50)
     print()
-    app.run(host="0.0.0.0", port=5000, threaded=True, debug=False)
+    app.run(host="127.0.0.1", port=5000, threaded=True, debug=False)

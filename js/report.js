@@ -419,4 +419,9 @@ function toggleDesc(btn) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+// Clean up polling timers on page navigation
+window.addEventListener('beforeunload', () => {
+  if (_scoringPollTimer) { clearInterval(_scoringPollTimer); _scoringPollTimer = null; }
+});
+
 loadReport();

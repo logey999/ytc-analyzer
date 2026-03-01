@@ -218,6 +218,11 @@ async function checkScoringNow() {
   }
 }
 
+// Clean up polling timers on page navigation
+window.addEventListener('beforeunload', () => {
+  if (_scoringPollTimer) { clearInterval(_scoringPollTimer); _scoringPollTimer = null; }
+});
+
 function _startAggregateScoringPoll() {
   if (_scoringPollTimer) clearInterval(_scoringPollTimer);
   _scoringPollTimer = setInterval(async () => {

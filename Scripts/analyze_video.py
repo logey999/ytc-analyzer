@@ -76,15 +76,8 @@ _TIMESTAMP_RE = re.compile(r"^(\d+:)?\d{1,2}:\d{2}$")
 # Five or more identical consecutive characters ("lolololol", "!!!!!")
 _REPEAT_CHAR_RE = re.compile(r"(.)\1{4,}")
 
-from get_comments import get_comments
+from get_comments import get_comments, _extract_video_id as extract_video_id
 from create_report import generate_report
-
-def extract_video_id(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.hostname in ("youtu.be",):
-        return parsed.path.lstrip("/").split("?")[0]
-    qs = parse_qs(parsed.query)
-    return qs.get("v", ["video"])[0]
 
 
 def _slugify(text: str, max_len: int = None) -> str:
@@ -159,7 +152,7 @@ def filter_low_value(
     # ── pairwise comparison (slowest, O(n²)) ─────────────────────────────
     dedup: bool = True,
     dedup_threshold: int = 85,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, dict]:
     """
     Remove empty, near-empty, and low-value comments.
     Filters are ordered cheapest → most expensive to minimise rows processed

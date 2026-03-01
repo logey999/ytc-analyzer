@@ -202,9 +202,8 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
             replies_in_thread = item.get("replies", {}).get("comments", [])
 
             if reply_count > 5 and len(replies_in_thread) < reply_count:
-                # Fetch all replies via comments.list
-                _fetch_all_replies(youtube, top["id"], all_comments)
-                units += 1  # comments.list costs 1 unit per request
+                # Fetch all replies via comments.list (may paginate)
+                units += _fetch_all_replies(youtube, top["id"], all_comments)
             else:
                 for reply in replies_in_thread:
                     r_snippet = reply["snippet"]
@@ -235,9 +234,13 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
     return all_comments, units
 
 
-def _fetch_all_replies(youtube, parent_id: str, all_comments: list) -> None:
-    """Fetch all replies for a comment thread when there are more than 5."""
+def _fetch_all_replies(youtube, parent_id: str, all_comments: list) -> int:
+    """Fetch all replies for a comment thread when there are more than 5.
+
+    Returns the number of API units consumed (1 per page).
+    """
     page_token = None
+    units = 0
     while True:
         request = youtube.comments().list(
             part="snippet",
@@ -247,6 +250,7 @@ def _fetch_all_replies(youtube, parent_id: str, all_comments: list) -> None:
             textFormat="plainText",
         )
         response = _api_request_with_retry(request)
+        units += 1
 
         for reply in response.get("items", []):
             r_snippet = reply["snippet"]
@@ -264,6 +268,7 @@ def _fetch_all_replies(youtube, parent_id: str, all_comments: list) -> None:
         page_token = response.get("nextPageToken")
         if not page_token:
             break
+    return units
 
 
 def _iso_to_unix(iso_str: str) -> int:
