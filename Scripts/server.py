@@ -546,6 +546,7 @@ def _remove_from_parquet(comment_id: str, report_path: str) -> None:
 
 def _move_exclusive(comment: dict, dest_store: CommentStore) -> None:
     """Enforce single ownership: remove from all stores + parquet, then add to dest."""
+    _sanitize_comment(comment)
     cid = comment.get("id")
     report_path = comment.get("_reportPath", "")
     with _store_lock:
@@ -554,6 +555,63 @@ def _move_exclusive(comment: dict, dest_store: CommentStore) -> None:
         if report_path:
             _remove_from_parquet(cid, report_path)
         dest_store.add(comment)
+
+
+def _sanitize_comment(c: dict) -> dict:
+    """Replace NaN/None in score columns with -1 for JSON safety."""
+    import math
+    for key in ("topic_rating", "topic_confidence"):
+        v = c.get(key)
+        if v is None:
+            c[key] = -1
+        elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            c[key] = -1
+    return c
+
+
+def _move_exclusive_bulk(comments: list, dest_store: CommentStore) -> int:
+    """Bulk move: remove all comment IDs from every store + parquet in minimal disk writes."""
+    if not comments:
+        return 0
+    comments = [_sanitize_comment(c) for c in comments]
+    all_ids = {c.get("id") for c in comments if c.get("id")}
+    if not all_ids:
+        return 0
+
+    # Group comments by report path for batch parquet removal
+    by_report: dict[str, set] = {}
+    for c in comments:
+        rp = c.get("_reportPath", "")
+        if rp:
+            by_report.setdefault(rp, set()).add(c["id"])
+
+    with _store_lock:
+        # Remove from all 3 stores in one pass each
+        for store in (saved_store, blacklist_store, deleted_store):
+            store.remove_many(all_ids)
+
+        # Batch-remove from each report parquet (one read+write per report)
+        for report_path, ids in by_report.items():
+            parts = report_path.split("/")
+            if len(parts) != 2:
+                continue
+            channel_slug, video_slug = parts
+            folder = os.path.join(PROJECT_ROOT, "Reports", channel_slug, video_slug)
+            matches = glob.glob(os.path.join(folder, f"{video_slug}_comments_*.parquet"))
+            if not matches:
+                continue
+            parquet_path = max(matches)
+            df = pd.read_parquet(parquet_path)
+            if "id" in df.columns:
+                before = len(df)
+                df = df[~df["id"].isin(ids)]
+                if len(df) < before:
+                    df.to_parquet(parquet_path, index=False)
+
+        # Add all to destination in one write
+        dest_store.add_many(comments)
+
+    return len(all_ids)
 
 
 # ── API: comment actions (blacklist, save, delete) ────────────────────────────
@@ -627,6 +685,30 @@ def api_deleted_clear():
     """Remove all comments from the Deleted bin."""
     deleted_store.clear()
     return jsonify({"success": True})
+
+
+@app.post("/api/comment/bulk-move")
+def api_comment_bulk_move():
+    """Bulk-move comments to a destination store in minimal disk writes."""
+    data = request.get_json(force=True, silent=True) or {}
+    comments = data.get("comments")
+    dest = data.get("dest")
+
+    if not isinstance(comments, list) or not comments:
+        return jsonify({"error": "comments array required"}), 400
+    if dest not in ("saved", "blacklist", "deleted"):
+        return jsonify({"error": "dest must be saved, blacklist, or deleted"}), 400
+
+    dest_map = {"saved": saved_store, "blacklist": blacklist_store, "deleted": deleted_store}
+    dest_store = dest_map[dest]
+
+    # Add default reason for blacklist
+    if dest == "blacklist":
+        for c in comments:
+            c.setdefault("reason", "User")
+
+    count = _move_exclusive_bulk(comments, dest_store)
+    return jsonify({"success": True, "count": count})
 
 
 @app.post("/api/comment/save")

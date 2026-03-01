@@ -178,26 +178,7 @@ async function _updateAiScoreAllState() {
 async function saveAllFiltered() {
   const filtered = aggTable.getFilteredData();
   if (!filtered.length) return;
-
-  const btn = document.getElementById('save-all-btn');
-  if (btn) { btn.disabled = true; btn.textContent = `Saving ${filtered.length}…`; }
-
-  let saved = 0;
-  for (const comment of filtered) {
-    try {
-      await fetch('/api/comment/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment }),
-      });
-      saved++;
-    } catch (_) {}
-  }
-
-  // Reload to reflect changes
-  await aggTable.loadAggregate();
-  loadNavCounts();
-  if (btn) { btn.disabled = false; btn.textContent = 'Save All'; }
+  await _bulkMoveWithModal(filtered, 'saved', 'Saving');
 }
 
 // ── Delete All ────────────────────────────────────────────────────────────
@@ -234,22 +215,40 @@ function showDeleteAllModal() {
   document.getElementById('_da-cancel').onclick = close;
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
 
-  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMove('/api/comment/blacklist', filtered); };
-  document.getElementById('_da-delete').onclick = () => { close(); _bulkMove('/api/comment/delete', filtered); };
+  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMoveWithModal(filtered, 'blacklist', 'Blacklisting'); };
+  document.getElementById('_da-delete').onclick = () => { close(); _bulkMoveWithModal(filtered, 'deleted', 'Deleting'); };
 }
 
-async function _bulkMove(endpoint, comments) {
-  for (const comment of comments) {
-    try {
-      await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment }),
-      });
-    } catch (_) {}
+async function _bulkMoveWithModal(comments, dest, verb) {
+  if (!comments.length) return;
+  const count = comments.length;
+
+  // Show progress modal
+  const overlay = document.createElement('div');
+  overlay.id = '_ytca-bulk-modal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `
+    <div class="modal-box" style="max-width:360px;width:88vw;text-align:center">
+      <div class="spinner" style="margin:1.5rem auto"></div>
+      <p class="modal-desc">${esc(verb)} ${count.toLocaleString()} comment${count !== 1 ? 's' : ''}...</p>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  try {
+    const res = await fetch('/api/comment/bulk-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comments, dest }),
+    });
+    const data = await res.json();
+    if (!res.ok) console.error('Bulk move error:', data.error);
+  } catch (e) {
+    console.error('Bulk move failed:', e);
+  } finally {
+    overlay.remove();
+    await aggTable.loadAggregate();
+    loadNavCounts();
   }
-  await aggTable.loadAggregate();
-  loadNavCounts();
 }
 
 document.addEventListener('keydown', e => {

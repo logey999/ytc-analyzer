@@ -153,9 +153,9 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
     panelId: 'pane-all',
     pageSize: CONFIG.ui.pageSize,
     columns: [
-      { id: 'text',             label: 'Comment' },
       { id: 'topic_rating',     label: 'AIScore' },
       { id: 'topic_confidence', label: 'AIConf' },
+      { id: 'text',             label: 'Comment' },
       { id: 'like_count',       label: 'Likes' },
       { id: 'author',           label: 'Author' },
       { id: 'video',            label: 'Video' },
@@ -431,25 +431,9 @@ async function saveAllFiltered() {
   if (!_allTable) return;
   const filtered = _allTable.getFilteredData();
   if (!filtered.length) return;
-
-  const btn = document.getElementById('save-all-btn');
-  if (btn) { btn.disabled = true; btn.textContent = `Saving ${filtered.length}…`; }
-
-  for (const comment of filtered) {
-    try {
-      await fetch('/api/comment/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: _withContext(comment) }),
-      });
-      _pendingCount = Math.max(0, _pendingCount - 1); _savedCount++;
-    } catch (_) {}
-  }
-
-  // Reload report to reflect changes
-  await loadReport();
-  loadNavCounts();
+  await _bulkMoveWithModal(filtered, 'saved', 'Saving');
 }
+
 
 function showDeleteAllModal() {
   if (!_allTable) return;
@@ -484,24 +468,41 @@ function showDeleteAllModal() {
   document.getElementById('_da-cancel').onclick = close;
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
 
-  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMove('/api/comment/blacklist'); };
-  document.getElementById('_da-delete').onclick = () => { close(); _bulkMove('/api/comment/delete'); };
+  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMoveWithModal(_allTable.getFilteredData(), 'blacklist', 'Blacklisting'); };
+  document.getElementById('_da-delete').onclick = () => { close(); _bulkMoveWithModal(_allTable.getFilteredData(), 'deleted', 'Deleting'); };
 }
 
-async function _bulkMove(endpoint) {
-  if (!_allTable) return;
-  const filtered = _allTable.getFilteredData();
-  for (const comment of filtered) {
-    try {
-      await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: _withContext(comment) }),
-      });
-    } catch (_) {}
+async function _bulkMoveWithModal(comments, dest, verb) {
+  if (!comments.length) return;
+  const prepared = comments.map(c => _withContext(c));
+  const count = prepared.length;
+
+  // Show progress modal
+  const overlay = document.createElement('div');
+  overlay.id = '_ytca-bulk-modal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `
+    <div class="modal-box" style="max-width:360px;width:88vw;text-align:center">
+      <div class="spinner" style="margin:1.5rem auto"></div>
+      <p class="modal-desc">${esc(verb)} ${count.toLocaleString()} comment${count !== 1 ? 's' : ''}...</p>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  try {
+    const res = await fetch('/api/comment/bulk-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comments: prepared, dest }),
+    });
+    const data = await res.json();
+    if (!res.ok) console.error('Bulk move error:', data.error);
+  } catch (e) {
+    console.error('Bulk move failed:', e);
+  } finally {
+    overlay.remove();
+    await loadReport();
+    loadNavCounts();
   }
-  await loadReport();
-  loadNavCounts();
 }
 
 document.addEventListener('keydown', e => {

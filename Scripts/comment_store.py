@@ -9,6 +9,7 @@ Handles loading, saving, and manipulating comment lists with:
 - Simple CRUD operations
 """
 
+import math
 import os
 import threading
 from typing import Any, Dict, List, Optional
@@ -52,6 +53,10 @@ class CommentStore:
         for col in _INT_COLS:
             if col in df.columns:
                 df[col] = df[col].astype(int)
+        # Replace NaN in score columns with -1 for JSON safety
+        for col in ("topic_rating", "topic_confidence"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(-1).astype(int)
         return df.to_dict(orient="records")
 
     def _get_data(self) -> List[Dict[str, Any]]:
@@ -86,12 +91,21 @@ class CommentStore:
                     pass
             raise
 
+    @staticmethod
+    def _sanitize(comment: Dict[str, Any]) -> Dict[str, Any]:
+        """Replace NaN/None in score columns with -1."""
+        for key in ("topic_rating", "topic_confidence"):
+            v = comment.get(key)
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                comment[key] = -1
+        return comment
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def load(self) -> List[Dict[str, Any]]:
         """Load comments (from cache or disk). Returns empty list if file doesn't exist."""
         with self.lock:
-            return list(self._get_data())
+            return [self._sanitize(dict(c)) for c in self._get_data()]
 
     def save(self, data: List[Dict[str, Any]]) -> None:
         """Atomically save comments to parquet and update cache."""
@@ -107,7 +121,7 @@ class CommentStore:
         with self.lock:
             data = self._get_data()
             existing_ids = {c.get("id") for c in data}
-            new = [c for c in comments if c.get("id") not in existing_ids]
+            new = [self._sanitize(c) for c in comments if c.get("id") not in existing_ids]
             if not new:
                 return 0
             data = new + data  # prepend so newest appear first
@@ -123,7 +137,7 @@ class CommentStore:
             data = self._get_data()
             if any(c.get("id") == comment["id"] for c in data):
                 return False
-            data = [comment] + data
+            data = [self._sanitize(comment)] + data
             self._save_and_cache(data)
             return True
 
@@ -154,6 +168,18 @@ class CommentStore:
         destination.add(comment)
         return True
 
+    def remove_many(self, comment_ids: set) -> int:
+        """Remove multiple comments by ID in one pass. Returns count removed."""
+        if not comment_ids:
+            return 0
+        with self.lock:
+            data = self._get_data()
+            filtered = [c for c in data if c.get("id") not in comment_ids]
+            removed = len(data) - len(filtered)
+            if removed > 0:
+                self._save_and_cache(filtered)
+            return removed
+
     def clear(self) -> None:
         """Remove all comments."""
         with self.lock:
@@ -165,6 +191,6 @@ class CommentStore:
             return len(self._get_data())
 
     def all(self) -> List[Dict[str, Any]]:
-        """Return all comments as a list of dicts."""
+        """Return all comments as a list of dicts (NaN-safe)."""
         with self.lock:
-            return list(self._get_data())
+            return [self._sanitize(dict(c)) for c in self._get_data()]
