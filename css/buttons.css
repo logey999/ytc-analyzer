@@ -194,7 +194,8 @@ button {
   background: rgba(45, 212, 191, 0.05);
 }
 
-.nav-btn.disabled {
+.nav-btn.disabled,
+.nav-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -202,6 +203,74 @@ button {
 .nav-btn.btn-warning {
   background: var(--yellow);
   color: #000;
+}
+
+/* ── AI refresh button (sparkle background + refresh icon) ────────────────── */
+
+.btn-ai-refresh {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: transparent;
+  font-size: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+/* Sparkle centered */
+.btn-ai-refresh::before {
+  content: '✨';
+  font-size: 0.85rem;
+  color: white;
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+/* Orbiting dots */
+.btn-ai-refresh::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle 4px at 50% 0%,    var(--cyan) 50%, transparent 51%),
+    radial-gradient(circle 4px at 50% 100%,   rgba(168,130,255,0.8) 50%, transparent 51%);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  animation: none;
+  z-index: 0;
+}
+
+.btn-ai-refresh:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: var(--bg-3);
+}
+
+.btn-ai-refresh:hover:not(:disabled)::after,
+.btn-ai-refresh.spinning::after {
+  opacity: 1;
+  animation: ai-orbit 1.2s linear infinite;
+}
+
+@keyframes ai-orbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.btn-ai-refresh:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-ai-refresh:disabled::after {
+  animation: none;
 }
 
 /* ── Tab button styles ───────────────────────────────────────────────────────── */

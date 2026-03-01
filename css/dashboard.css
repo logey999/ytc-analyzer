@@ -17,6 +17,9 @@ body {
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  width: 80%;
+  max-width: 80%;
+  margin: 0 auto;
 }
 
 .analyze-bar-label {
@@ -124,6 +127,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  width: 80%;
+  max-width: 80%;
+  margin: 0 auto;
 }
 
 /* ── Reports toolbar (sort controls) ─────────────────────────────────────── */
@@ -273,19 +279,6 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-
-.report-card-arrow {
-  color: var(--text-3);
-  font-size: 1rem;
-  flex-shrink: 0;
-  transition: color 0.15s, transform 0.15s;
-  text-decoration: none;
-}
-
-.report-card:hover .report-card-arrow {
-  color: var(--red);
-  transform: translateX(3px);
 }
 
 .report-card:hover .report-card-title {
@@ -601,6 +594,25 @@ tbody tr.removing {
   color: var(--red);
 }
 
+/* ── AI score slot (fixed width to keep cards aligned) ───────────────────── */
+
+.report-card-ai-slot {
+  flex-shrink: 0;
+  width: 1.5rem;
+  text-align: center;
+}
+
+button.report-card-ai-slot {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.ai-scoring-done {
+  animation: none;
+  opacity: 1;
+}
+
 /* ── Report card delete button ────────────────────────────────────────────── */
 
 .report-card-delete-btn {
@@ -613,19 +625,25 @@ tbody tr.removing {
   line-height: 1;
   padding: 5px 7px;
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
-  order: 1; /* sits before the arrow */
-}
-
-.report-card:hover .report-card-delete-btn {
-  opacity: 1;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 
 .report-card-delete-btn:hover {
   color: var(--red);
   background: rgba(255,45,45,0.1);
   border-color: rgba(255,45,45,0.25);
+}
+
+/* ── Reports pagination ──────────────────────────────────────────────────── */
+
+.reports-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 28px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
 }
 
 /* ── Delete report modal ──────────────────────────────────────────────────── */

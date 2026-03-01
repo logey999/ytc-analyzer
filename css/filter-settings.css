@@ -20,6 +20,87 @@
 }
 
 
+/* ── Analyze bar divider ──────────────────────────────────────────────────── */
+
+.analyze-bar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border-2);
+  flex-shrink: 0;
+}
+
+/* ── AI Scoring mode toggle ───────────────────────────────────────────────── */
+
+.ai-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-mode-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--red);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ai-mode-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-mode-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  font-size: 0.58rem;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+
+.ai-mode-btn:hover {
+  color: var(--text);
+  border-color: var(--border-2);
+}
+
+.auto-ai-keywords-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+  padding: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.auto-ai-keywords-preview .kw-tag {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-3);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.82rem;
+}
+
+.ai-mode-btn.active {
+  background: var(--cyan);
+  border-color: var(--cyan);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* ── Filter list ─────────────────────────────────────────────────────────── */
+
 .filter-list {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

@@ -44,6 +44,14 @@
         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
     </button>
+    <div class="analyze-bar-divider"></div>
+    <div class="ai-mode-toggle" title="Manual: score reports yourself via the AI Score button. Auto: scoring starts immediately when analysis finishes.">
+      <span class="ai-mode-label">AI Scoring</span>
+      <div class="ai-mode-buttons">
+        <button class="ai-mode-btn" id="ai-mode-manual" onclick="setAiMode('manual')">Manual</button>
+        <button class="ai-mode-btn" id="ai-mode-auto" onclick="setAiMode('auto')">Auto</button>
+      </div>
+    </div>
   </div>
   <input
     id="url-input"
@@ -67,6 +75,11 @@
   </div>
   <div id="panel-reports" class="reports-list">
     <div class="reports-empty">Loading reports…</div>
+  </div>
+  <div id="reports-pagination" class="reports-pagination" style="display:none">
+    <button class="pg-btn pg-prev" onclick="reportPagePrev()">&#8592; Prev</button>
+    <span class="pg-info"></span>
+    <button class="pg-btn pg-next" onclick="reportPageNext()">Next &#8594;</button>
   </div>
 </div>
 
@@ -128,6 +141,28 @@
     </div>
     <div class="delete-report-cancel">
       <button class="btn btn-secondary" onclick="closeDeleteReportModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Auto AI Confirm Modal ────────────────────────────────────────────── -->
+<div id="auto-ai-modal" class="modal-overlay" onclick="closeAutoAiModal(event)">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-header">
+      <span class="modal-title">Enable Auto AI Scoring</span>
+      <button class="modal-close" onclick="closeAutoAiModal()">&times;</button>
+    </div>
+    <p class="modal-desc">
+      When enabled, AI scoring will start automatically as soon as a video&rsquo;s comments finish downloading. Scoring uses the Anthropic Batches API and results are written back when ready.
+    </p>
+    <div style="padding:0 0 10px">
+      <span class="api-key-label" style="margin-bottom:6px;display:block">Keywords</span>
+      <div id="auto-ai-keywords" class="auto-ai-keywords-preview"></div>
+      <p style="color:var(--text-3);font-size:0.72rem;margin:6px 0 0">These keywords are shared with manual scoring. Edit them from the &#10024; AI Score button on any report.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeAutoAiModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmAutoAi()">Enable</button>
     </div>
   </div>
 </div>

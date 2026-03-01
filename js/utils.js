@@ -1,34 +1,39 @@
-// ── AI Prompt ─────────────────────────────────────────────────────────────────
+// ── AI Keywords ───────────────────────────────────────────────────────────────
 
-const _DEFAULT_AI_PROMPT =
-`You analyse comments on a YouTube video to identify video topic potential.
+const _DEFAULT_KEYWORDS = ['video ideas'];
+const _KEYWORDS_STORAGE_KEY = 'ytca_ai_keywords';
+const _MAX_KEYWORDS = 10;
 
-Rate each comment 1-10:
-  8-10  Clear actionable question or topic idea the creator could make a video about
-  4-7   Vague interest or partial topic signal
-  1-3   General praise, reaction, off-topic, or no usable topic idea
+function getAiKeywords() {
+  try {
+    const stored = localStorage.getItem(_KEYWORDS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (_) {}
+  return [..._DEFAULT_KEYWORDS];
+}
 
-Confidence: how certain you are given the clarity of the comment (0-100).
-
-Return a JSON array in the same order as the input:
-[{"rating": N, "confidence": N}, ...]`;
-
-const _PROMPT_STORAGE_KEY = 'ytca_ai_score_prompt';
-
-function getAiPrompt() {
-  return localStorage.getItem(_PROMPT_STORAGE_KEY) || _DEFAULT_AI_PROMPT;
+function setAiKeywords(keywords) {
+  if (!keywords.length || (keywords.length === 1 && keywords[0] === _DEFAULT_KEYWORDS[0])) {
+    localStorage.removeItem(_KEYWORDS_STORAGE_KEY);
+  } else {
+    localStorage.setItem(_KEYWORDS_STORAGE_KEY, JSON.stringify(keywords));
+  }
 }
 
 /**
- * Show a modal with an editable AI prompt textarea.
+ * Show a modal with a keyword tag editor.
  * Options: { title, bodyHtml, submitLabel, submitDisabled, onConfirm }
- * onConfirm(prompt) is called with the (possibly edited) prompt string.
+ * onConfirm(keywords) is called with the keyword array.
  */
 function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel = 'Start Scoring', submitDisabled = false, onConfirm }) {
   const existing = document.getElementById('_ytca-prompt-modal');
   if (existing) existing.remove();
 
-  const prompt = getAiPrompt();
+  let keywords = [...getAiKeywords()];
+
   const modal = document.createElement('div');
   modal.id = '_ytca-prompt-modal';
   modal.className = 'modal-overlay open';
@@ -41,10 +46,16 @@ function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel 
       ${bodyHtml ? `<div id="_pm-body">${bodyHtml}</div>` : ''}
       <div style="padding:0 0 10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span class="api-key-label" style="margin:0">Scoring Prompt</span>
+          <span class="api-key-label" style="margin:0">Keywords <span id="_pm-count" style="color:var(--text-3);font-weight:normal">(${keywords.length}/${_MAX_KEYWORDS})</span></span>
           <button class="btn btn-secondary" id="_pm-reset" style="font-size:0.75rem;padding:2px 8px">Reset to Default</button>
         </div>
-        <textarea id="_pm-textarea" spellcheck="false" style="width:100%;height:190px;resize:vertical;font-family:monospace;font-size:0.78rem;line-height:1.5;background:var(--bg-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box">${esc(prompt)}</textarea>
+        <div id="_pm-tags" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:8px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:6px">
+          <input id="_pm-input" type="text" placeholder="Add keyword…" maxlength="60"
+            style="flex:1;background:var(--bg-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.85rem;box-sizing:border-box">
+          <button class="nav-btn" id="_pm-add" style="white-space:nowrap">Add</button>
+        </div>
+        <p style="color:var(--text-3);font-size:0.75rem;margin:6px 0 0">Comments matching any keyword score higher. Press Enter to add.</p>
       </div>
       <div class="modal-actions">
         <button class="nav-btn" id="_pm-cancel">Cancel</button>
@@ -54,26 +65,52 @@ function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel 
 
   document.body.appendChild(modal);
 
+  function renderTags() {
+    const container = document.getElementById('_pm-tags');
+    container.innerHTML = keywords.map((kw, i) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-3);color:var(--text);border:1px solid var(--border-2);border-radius:4px;padding:3px 8px;font-size:0.82rem">
+        ${esc(kw)}
+        <span data-idx="${i}" style="cursor:pointer;color:var(--text-3);font-size:1rem;line-height:1" title="Remove">&times;</span>
+      </span>`
+    ).join('');
+    container.querySelectorAll('[data-idx]').forEach(btn => {
+      btn.onclick = () => { keywords.splice(Number(btn.dataset.idx), 1); renderTags(); };
+    });
+    const countEl = document.getElementById('_pm-count');
+    if (countEl) countEl.textContent = `(${keywords.length}/${_MAX_KEYWORDS})`;
+  }
+
+  function addKeyword() {
+    const input = document.getElementById('_pm-input');
+    const val = input.value.trim();
+    if (!val || keywords.length >= _MAX_KEYWORDS) return;
+    if (keywords.some(k => k.toLowerCase() === val.toLowerCase())) { input.value = ''; return; }
+    keywords.push(val);
+    input.value = '';
+    renderTags();
+  }
+
+  renderTags();
+
   const close = () => modal.remove();
   document.getElementById('_pm-close').onclick = close;
   document.getElementById('_pm-cancel').onclick = close;
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
 
+  document.getElementById('_pm-add').onclick = addKeyword;
+  document.getElementById('_pm-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addKeyword(); }
+  });
+
   document.getElementById('_pm-reset').onclick = () => {
-    document.getElementById('_pm-textarea').value = _DEFAULT_AI_PROMPT;
+    keywords = [..._DEFAULT_KEYWORDS];
+    renderTags();
   };
 
   document.getElementById('_pm-submit').onclick = () => {
-    const p = document.getElementById('_pm-textarea').value.trim();
-    const finalPrompt = p || _DEFAULT_AI_PROMPT;
-    // Persist only if different from default
-    if (finalPrompt === _DEFAULT_AI_PROMPT) {
-      localStorage.removeItem(_PROMPT_STORAGE_KEY);
-    } else {
-      localStorage.setItem(_PROMPT_STORAGE_KEY, finalPrompt);
-    }
+    setAiKeywords(keywords);
     close();
-    onConfirm(finalPrompt);
+    onConfirm(keywords);
   };
 }
 
@@ -207,7 +244,7 @@ function buildColSelector(cols, prefs, toggleFn) {
         onchange="${toggleFn}('${c.id}', this.checked)">
       ${c.label}
     </label>`).join('');
-  return `<div class="col-selector"><span class="col-selector-label">Columns:</span>${checkboxes}</div>`;
+  return `<div class="col-selector">${checkboxes}</div>`;
 }
 
 function applyColVisibility(panelId, prefs) {

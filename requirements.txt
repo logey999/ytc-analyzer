@@ -5,7 +5,7 @@ pyarrow
 matplotlib
 flask
 emoji
-langdetect
+lingua-language-detector
 rapidfuzz
 anthropic
 vaderSentiment

@@ -16,7 +16,15 @@ const blacklistTable = new TableManager({
   pageSize: CONFIG.ui.pageSize,
   columns: COL_DEFS,
   colPrefKey: CONFIG.storage.colPrefPrefix + 'blacklist_page',
+  defaultColPrefs: {
+    topic_rating: false,
+    topic_confidence: false,
+    like_count: false,
+    author: false,
+    video: false,
+  },
   emptyMessage: 'No blacklisted comments yet.',
+  toolbarExtra: '<button class="btn btn-danger" onclick="openDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
   actions: [
     { label: '🗑', title: 'Move to Deleted', className: 'btn-delete', handler: blacklistToDeleted },
   ],

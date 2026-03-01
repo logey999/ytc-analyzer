@@ -40,13 +40,14 @@ except ImportError:
     def _strip_emoji(text: str) -> str:
         return _EMOJI_FALLBACK_RE.sub("", text)
 
-# langdetect: language identification
+# lingua: accurate language detection, especially on short text
 try:
-    from langdetect import detect as _lang_detect
-    _LANGDETECT_AVAILABLE = True
+    from lingua import Language as _Language, LanguageDetectorBuilder as _LDB
+    _lingua_detector = _LDB.from_all_languages().with_preloaded_language_models().build()
+    _LINGUA_AVAILABLE = True
 except ImportError:
-    _lang_detect = None  # type: ignore[assignment]
-    _LANGDETECT_AVAILABLE = False
+    _lingua_detector = None  # type: ignore[assignment]
+    _LINGUA_AVAILABLE = False
 
 # rapidfuzz: fast fuzzy string matching for near-duplicate detection
 try:
@@ -74,7 +75,7 @@ _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 # Matches bare timestamps like "2:34" or "1:23:45" (entire comment)
 _TIMESTAMP_RE = re.compile(r"^(\d+:)?\d{1,2}:\d{2}$")
 # Five or more identical consecutive characters ("lolololol", "!!!!!")
-_REPEAT_CHAR_RE = re.compile(r"(.)\1{4,}")
+_REPEAT_CHAR_RE = re.compile(r"([a-zA-Z0-9])\1{4,}")
 
 from get_comments import get_comments, _extract_video_id as extract_video_id
 from create_report import generate_report
@@ -133,7 +134,7 @@ def filter_low_value(
     df: pd.DataFrame,
     # ── vectorized string checks (fastest) ───────────────────────────────
     min_chars: bool = True,
-    min_chars_threshold: int = 3,
+    min_chars_threshold: int = 20,
     min_alpha: bool = True,
     min_words: bool = True,
     min_words_threshold: int = 3,
@@ -147,8 +148,9 @@ def filter_low_value(
     blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
     # ── per-row ML inference (slow) ───────────────────────────────────────
     english_only: bool = True,
+    english_confidence: float = 0.5,
     sentiment_filter: bool = True,
-    sentiment_threshold: float = -0.5,  # VADER compound ≤ threshold → blacklist
+    sentiment_threshold: float = -0.8,  # VADER compound ≤ threshold → blacklist
     # ── pairwise comparison (slowest, O(n²)) ─────────────────────────────
     dedup: bool = True,
     dedup_threshold: int = 85,
@@ -166,7 +168,8 @@ def filter_low_value(
         timestamp_only     — drop bare timestamps ("2:34", "1:23:45")
         repeat_char        — drop comments with 5+ identical consecutive characters
         blacklist_match    — drop comments matching existing blacklist (requires: blacklist_texts set)
-        english_only       — drop non-English comments (requires: langdetect)
+        english_only       — drop non-English comments (requires: lingua-language-detector)
+        english_confidence — minimum confidence for English (0.0–1.0); default 0.5
         sentiment_filter   — drop comments with VADER compound score ≤ sentiment_threshold
         sentiment_threshold — VADER compound cutoff (−1 to 0); default −0.5 (requires: vaderSentiment)
         dedup              — drop ALL copies of any exact or near-duplicate comment
@@ -229,17 +232,19 @@ def filter_low_value(
 
     # ── 4. per-row language detection (slow — runs after cheap filters) ────
     if english_only:
-        if _LANGDETECT_AVAILABLE:
+        if _LINGUA_AVAILABLE:
+            min_conf = float(english_confidence)
             def _is_english(text: str) -> bool:
                 try:
-                    return _lang_detect(text) == "en"
+                    conf = _lingua_detector.compute_language_confidence_of(text, _Language.ENGLISH)
+                    return conf >= min_conf
                 except Exception:
                     return True  # keep on detection failure
             mask = df["text"].apply(_is_english)
             _apply(mask, "Non-English")
             df = df[mask]
         else:
-            print("  [warn] english_only requires 'langdetect': pip install langdetect")
+            print("  [warn] english_only requires 'lingua-language-detector': pip install lingua-language-detector")
 
     # ── 5. per-row sentiment analysis (slow — VADER rule-based) ──────────
     if sentiment_filter:

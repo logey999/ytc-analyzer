@@ -16,7 +16,7 @@ const FILTER_DEFS = [
       key: 'min_chars_threshold',
       label: 'Minimum Characters',
       detail: 'Blacklist shorter than this many characters',
-      min: 1, max: 20, step: 1, default: 3,
+      min: 1, max: 50, step: 1, default: 20,
       format: v => Math.round(v) + ' chars',
     }
   },
@@ -34,7 +34,7 @@ const FILTER_DEFS = [
       key: 'sentiment_threshold',
       label: 'Negativity Threshold',
       detail: 'Blacklist comments at or below this score (−1.00 = very strict, 0.00 = any negative)',
-      min: -1.0, max: 0.0, step: 0.05, default: -0.5,
+      min: -1.0, max: 0.0, step: 0.05, default: -0.8,
       format: v => parseFloat(v).toFixed(2),
     }
   },
@@ -47,7 +47,15 @@ const FILTER_DEFS = [
       format: v => Math.round(v) + '%',
     }
   },
-  { key: 'english_only',    label: 'Non-English',        detail: '',               default: true },
+  { key: 'english_only',    label: 'Non-English',        detail: '',               default: true,
+    slider: {
+      key: 'english_confidence',
+      label: 'English Confidence',
+      detail: 'Minimum confidence that a comment is English (lower = more lenient)',
+      min: 0.0, max: 1.0, step: 0.05, default: 0.5,
+      format: v => parseFloat(v).toFixed(2),
+    }
+  },
 ];
 
 const _FS_KEY = 'ytc_filter_settings';

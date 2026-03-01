@@ -28,8 +28,12 @@ const aggTable = new TableManager({
   defaultColPrefs: {
     topic_rating: false,
     topic_confidence: false,
+    like_count: false,
+    author: false,
+    video: false,
   },
   emptyMessage: 'No comments yet.',
+  toolbarExtra: '<button class="btn btn-secondary" id="save-all-btn" onclick="saveAllFiltered()" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
   actions: [
     { label: '+', title: 'Save', className: 'btn-save', handler: aggToSave },
     { label: '🚫', title: 'Add to Blacklist', className: 'btn-blacklist', handler: aggToBlacklist },
@@ -130,6 +134,114 @@ aggTable.loadAggregate = async function() {
 
 aggTable.load = aggTable.loadAggregate;
 
+// After aggregate loads, check if AI Score All should be disabled
+const _origLoad = aggTable.loadAggregate.bind(aggTable);
+aggTable.loadAggregate = async function() {
+  await _origLoad();
+  _updateAiScoreAllState();
+};
+aggTable.load = aggTable.loadAggregate;
+
+async function _updateAiScoreAllState() {
+  const btn = document.getElementById('ai-score-all-btn');
+  if (!btn) return;
+  try {
+    const res = await fetch(CONFIG.api.aiScoreAggregate);
+    const data = await res.json();
+    const nothingToScore = (data.eligible_count || 0) === 0 && (data.pending_count || 0) === 0;
+    const nothingToPoll = (data.pending_count || 0) === 0;
+    btn.disabled = nothingToScore;
+    btn.title = nothingToScore
+      ? (data.scored_count > 0 ? 'All comments are already scored' : 'No comments available for scoring')
+      : '';
+    const pollBtn = document.getElementById('ai-score-check-btn');
+    if (pollBtn) pollBtn.style.display = nothingToPoll ? 'none' : '';
+  } catch (_) {}
+}
+
+// ── Save All Filtered ──────────────────────────────────────────────────────
+
+async function saveAllFiltered() {
+  const filtered = aggTable.getFilteredData();
+  if (!filtered.length) return;
+
+  const btn = document.getElementById('save-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = `Saving ${filtered.length}…`; }
+
+  let saved = 0;
+  for (const comment of filtered) {
+    try {
+      await fetch('/api/comment/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment }),
+      });
+      saved++;
+    } catch (_) {}
+  }
+
+  // Reload to reflect changes
+  await aggTable.loadAggregate();
+  loadNavCounts();
+  if (btn) { btn.disabled = false; btn.textContent = 'Save All'; }
+}
+
+// ── Delete All ────────────────────────────────────────────────────────────
+
+function showDeleteAllModal() {
+  const filtered = aggTable.getFilteredData();
+  if (!filtered.length) return;
+
+  const existing = document.getElementById('_ytca-delall-modal');
+  if (existing) existing.remove();
+
+  const count = filtered.length;
+  const modal = document.createElement('div');
+  modal.id = '_ytca-delall-modal';
+  modal.className = 'modal-overlay open';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:420px;width:92vw">
+      <div class="modal-header">
+        <span class="modal-title">Delete All Pending</span>
+        <button class="modal-close" id="_da-close">&times;</button>
+      </div>
+      <p class="modal-desc">What should happen to all <strong>${count.toLocaleString()}</strong> filtered comment${count !== 1 ? 's' : ''}?</p>
+      <div class="modal-actions">
+        <button class="nav-btn" id="_da-cancel">Cancel</button>
+        <button class="btn btn-secondary" id="_da-blacklist" style="white-space:nowrap">Move to Blacklist</button>
+        <button class="btn btn-danger" id="_da-delete" style="border:1px solid rgba(255,45,45,0.3);white-space:nowrap">Move to Deleted</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  document.getElementById('_da-close').onclick = close;
+  document.getElementById('_da-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMove('/api/comment/blacklist', filtered); };
+  document.getElementById('_da-delete').onclick = () => { close(); _bulkMove('/api/comment/delete', filtered); };
+}
+
+async function _bulkMove(endpoint, comments) {
+  for (const comment of comments) {
+    try {
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment }),
+      });
+    } catch (_) {}
+  }
+  await aggTable.loadAggregate();
+  loadNavCounts();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('_ytca-delall-modal')?.remove();
+});
+
 // Load on page ready
 document.addEventListener('DOMContentLoaded', () => {
   aggTable.load();
@@ -186,17 +298,22 @@ async function openAiScoreModal() {
     bodyHtml,
     submitLabel,
     submitDisabled,
-    onConfirm: async (prompt) => {
+    onConfirm: async (keywords) => {
       try {
         const res = await fetch(CONFIG.api.aiScoreAggregate, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ keywords }),
         });
         const data = await res.json();
         if (data.error) { alert('AI Scoring error: ' + data.error); return; }
         const btn = document.getElementById('ai-score-all-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Scoring…'; }
+        aggTable.config.scoringInProgress = true;
+        aggTable.colPrefs.topic_rating = true;
+        aggTable.colPrefs.topic_confidence = true;
+        localStorage.setItem(aggTable.config.colPrefKey, JSON.stringify(aggTable.colPrefs));
+        aggTable.render();
         _startAggregateScoringPoll();
       } catch (e) {
         alert('Network error: ' + e.message);
@@ -214,7 +331,7 @@ async function checkScoringNow() {
   } catch (e) {
     console.error('Check scoring error:', e);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#10227;'; }
   }
 }
 

@@ -103,5 +103,5 @@ tbody tr.removing {
   justify-content: center;
   flex-shrink: 0;
   cursor: default;
-  opacity: 0.85;
+  opacity: 1;
 }

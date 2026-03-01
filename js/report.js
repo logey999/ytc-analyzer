@@ -155,20 +155,23 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
     pageSize: CONFIG.ui.pageSize,
     columns: [
       { id: 'text',             label: 'Comment' },
-      { id: 'like_count',       label: 'Likes' },
       { id: 'topic_rating',     label: 'AIScore' },
-      { id: 'topic_confidence', label: 'AIConf%' },
+      { id: 'topic_confidence', label: 'AIConf' },
+      { id: 'like_count',       label: 'Likes' },
       { id: 'author',           label: 'Author' },
       { id: 'video',            label: 'Video' },
     ],
     colPrefKey: 'ytca_cols_report_all',
     defaultColPrefs: {
-      video: false,
       topic_rating: scoringActive,
       topic_confidence: scoringActive,
+      like_count: false,
+      author: false,
+      video: false,
     },
     scoringInProgress: cb && cb.status === 'in_progress',
     emptyMessage: 'No comments.',
+    toolbarExtra: '<button class="btn btn-secondary" onclick="saveAllFiltered()" id="save-all-btn" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
     actions: [
       {
         label: '+',
@@ -258,8 +261,7 @@ function _renderScoringButton(cb, hasUnscored = false) {
   if (!status) {
     inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
   } else if (status === 'in_progress') {
-    inner = `<span class="nav-btn disabled" id="ai-score-btn">Scoring&#8230;</span>
-             <button class="nav-btn" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now">Check Now</button>`;
+    inner = `<button class="btn-ai-refresh spinning" id="ai-score-check-btn" onclick="checkScoringNow()" title="AI scoring in progress — click to check now">&#10227;</button>`;
   } else if (status === 'ended') {
     if (hasUnscored) {
       inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10024; Score Remaining</button>`;
@@ -316,13 +318,13 @@ async function runAiScoring() {
     bodyHtml,
     submitLabel,
     submitDisabled,
-    onConfirm: async (prompt) => {
+    onConfirm: async (keywords) => {
       if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
       try {
         const res = await fetch(`/api/ai-score/${REPORT_PATH}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ keywords }),
         });
         const data = await res.json();
         if (data.error) {
@@ -331,6 +333,13 @@ async function runAiScoring() {
           return;
         }
         _updateScoringControls({ status: 'in_progress' });
+        if (_allTable) {
+          _allTable.config.scoringInProgress = true;
+          _allTable.colPrefs.topic_rating = true;
+          _allTable.colPrefs.topic_confidence = true;
+          localStorage.setItem(_allTable.config.colPrefKey, JSON.stringify(_allTable.colPrefs));
+          _allTable.render();
+        }
         _startScoringPoll();
       } catch (e) {
         alert('Network error: ' + e.message);
@@ -357,7 +366,7 @@ async function checkScoringNow() {
     console.error('Check scoring error:', e);
   } finally {
     const checkBtn = document.getElementById('ai-score-check-btn');
-    if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check Now'; }
+    if (checkBtn) { checkBtn.disabled = false; checkBtn.innerHTML = '&#10227;'; }
   }
 }
 
@@ -416,6 +425,89 @@ function toggleDesc(btn) {
   const visible = el.classList.toggle('visible');
   btn.textContent = visible ? 'Hide Description' : 'Show Description';
 }
+
+// ── Save All / Delete All ─────────────────────────────────────────────────────
+
+async function saveAllFiltered() {
+  if (!_allTable) return;
+  const filtered = _allTable.getFilteredData();
+  if (!filtered.length) return;
+
+  const btn = document.getElementById('save-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = `Saving ${filtered.length}…`; }
+
+  for (const comment of filtered) {
+    try {
+      await fetch('/api/comment/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: _withContext(comment) }),
+      });
+      _pendingCount = Math.max(0, _pendingCount - 1); _savedCount++;
+    } catch (_) {}
+  }
+
+  // Reload report to reflect changes
+  await loadReport();
+  loadNavCounts();
+}
+
+function showDeleteAllModal() {
+  if (!_allTable) return;
+  const filtered = _allTable.getFilteredData();
+  if (!filtered.length) return;
+
+  const existing = document.getElementById('_ytca-delall-modal');
+  if (existing) existing.remove();
+
+  const count = filtered.length;
+  const modal = document.createElement('div');
+  modal.id = '_ytca-delall-modal';
+  modal.className = 'modal-overlay open';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:420px;width:92vw">
+      <div class="modal-header">
+        <span class="modal-title">Delete All Comments</span>
+        <button class="modal-close" id="_da-close">&times;</button>
+      </div>
+      <p class="modal-desc">What should happen to all <strong>${count.toLocaleString()}</strong> filtered comment${count !== 1 ? 's' : ''}?</p>
+      <div class="modal-actions">
+        <button class="nav-btn" id="_da-cancel">Cancel</button>
+        <button class="btn btn-secondary" id="_da-blacklist" style="white-space:nowrap">Move to Blacklist</button>
+        <button class="btn btn-danger" id="_da-delete" style="border:1px solid rgba(255,45,45,0.3);white-space:nowrap">Move to Deleted</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  document.getElementById('_da-close').onclick = close;
+  document.getElementById('_da-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  document.getElementById('_da-blacklist').onclick = () => { close(); _bulkMove('/api/comment/blacklist'); };
+  document.getElementById('_da-delete').onclick = () => { close(); _bulkMove('/api/comment/delete'); };
+}
+
+async function _bulkMove(endpoint) {
+  if (!_allTable) return;
+  const filtered = _allTable.getFilteredData();
+  for (const comment of filtered) {
+    try {
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: _withContext(comment) }),
+      });
+    } catch (_) {}
+  }
+  await loadReport();
+  loadNavCounts();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('_ytca-delall-modal')?.remove();
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 

@@ -88,9 +88,10 @@ _FILTER_BOOL_KEYS = frozenset({
 
 # Numeric filter keys: name → (type, min, max, default)
 _FILTER_NUM_KEYS: dict = {
-    "min_chars_threshold": (int,   1,    20,   3),
+    "min_chars_threshold": (int,   1,    50,   20),
     "min_words_threshold": (int,   1,    10,   3),
-    "sentiment_threshold": (float, -1.0, 0.0, -0.5),
+    "sentiment_threshold": (float, -1.0, 0.0, -0.8),
+    "english_confidence":  (float, 0.0,  1.0,  0.5),
     "dedup_threshold":     (int,   50,   100,  85),
 }
 
@@ -586,9 +587,13 @@ def api_blacklist_delete(comment_id: str):
 
 @app.delete("/api/blacklist")
 def api_blacklist_clear():
-    """Remove all comments from the blacklist."""
-    blacklist_store.clear()
-    return jsonify({"success": True})
+    """Move all blacklisted comments to the Deleted bin."""
+    with _store_lock:
+        comments = blacklist_store.all()
+        for c in comments:
+            deleted_store.add(c)
+        blacklist_store.clear()
+    return jsonify({"success": True, "count": len(comments)})
 
 
 @app.post("/api/comment/delete")
@@ -617,6 +622,13 @@ def api_deleted_delete(comment_id: str):
     return jsonify({"success": True})
 
 
+@app.delete("/api/deleted")
+def api_deleted_clear():
+    """Remove all comments from the Deleted bin."""
+    deleted_store.clear()
+    return jsonify({"success": True})
+
+
 @app.post("/api/comment/save")
 def api_comment_save():
     """Save a comment to the Saved collection."""
@@ -641,6 +653,17 @@ def api_saved_delete(comment_id: str):
     """Remove a comment from the Saved collection."""
     saved_store.remove(comment_id)
     return jsonify({"success": True})
+
+
+@app.post("/api/saved/delete-all")
+def api_saved_delete_all():
+    """Move all saved comments to the Deleted bin."""
+    with _store_lock:
+        comments = saved_store.all()
+        for c in comments:
+            deleted_store.add(c)
+        saved_store.clear()
+    return jsonify({"success": True, "count": len(comments)})
 
 
 @app.delete("/api/report/<path:report_path>")
@@ -747,13 +770,16 @@ def api_ai_score_submit(report_path: str):
         return jsonify({"error": "report not found"}), 404
 
     info_path = info_files[0]
-    with open(info_path, "r", encoding="utf-8") as f:
-        info = json.load(f)
 
-    existing = info.get("claude_batch")
-    # Block re-submission only if a batch is already running
-    if existing and existing.get("status") == "in_progress":
-        return jsonify({"claude_batch": existing})
+    # Read info and check status under lock to prevent race with poll daemon
+    with _info_json_lock:
+        with open(info_path, "r", encoding="utf-8") as f:
+            info = json.load(f)
+
+        existing = info.get("claude_batch")
+        # Block re-submission only if a batch is already running
+        if existing and existing.get("status") == "in_progress":
+            return jsonify({"claude_batch": existing})
 
     slug = _video_slug(info.get("title", "unknown"))
     parquet = _find_latest_parquet(folder, slug)
@@ -774,9 +800,9 @@ def api_ai_score_submit(report_path: str):
         if df.empty:
             return jsonify({"claude_batch": existing})  # Truly all done
 
-    custom_prompt = (request.get_json(silent=True) or {}).get("prompt") or None
+    keywords = (request.get_json(silent=True) or {}).get("keywords") or None
     try:
-        batch_id, comment_ids = batch_scorer.submit_batch(df, system_prompt=custom_prompt)
+        batch_id, comment_ids = batch_scorer.submit_batch(df, keywords=keywords)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
@@ -790,10 +816,17 @@ def api_ai_score_submit(report_path: str):
         "comment_count": len(df),
         "chunk_size": batch_scorer.CHUNK_SIZE,
         "comment_ids": comment_ids,
+        "retry_count": 0,
+        "keywords": keywords,
     }
-    info["claude_batch"] = claude_batch
-    with open(info_path, "w", encoding="utf-8") as f:
-        json.dump(info, f, ensure_ascii=False)
+
+    # Write back under lock to prevent clobbering concurrent poll writes
+    with _info_json_lock:
+        with open(info_path, "r", encoding="utf-8") as f:
+            info = json.load(f)
+        info["claude_batch"] = claude_batch
+        with open(info_path, "w", encoding="utf-8") as f:
+            json.dump(info, f, ensure_ascii=False)
 
     return jsonify({"claude_batch": claude_batch})
 
@@ -862,7 +895,7 @@ def api_ai_score_aggregate_submit():
     """
     batches_submitted = 0
     comments_submitted = 0
-    custom_prompt = (request.get_json(silent=True) or {}).get("prompt") or None
+    keywords = (request.get_json(silent=True) or {}).get("keywords") or None
 
     pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
     for info_path in glob.glob(pattern, recursive=True):
@@ -893,11 +926,13 @@ def api_ai_score_aggregate_submit():
                 continue
 
             try:
-                batch_id, comment_ids = batch_scorer.submit_batch(df_unscored, system_prompt=custom_prompt)
+                batch_id, comment_ids = batch_scorer.submit_batch(df_unscored, keywords=keywords)
             except RuntimeError as exc:
+                # API key missing — affects all reports, abort early
                 return jsonify({"error": str(exc)}), 400
             except Exception as exc:
-                return jsonify({"error": f"batch submission failed: {exc}"}), 500
+                logging.warning("Aggregate scoring: skipping %s: %s", info_path, exc)
+                continue  # skip this report, continue with others
 
             submitted_at = datetime.now(timezone.utc).isoformat()
             info["claude_batch"] = {
@@ -907,6 +942,8 @@ def api_ai_score_aggregate_submit():
                 "comment_count": len(df_unscored),
                 "chunk_size": batch_scorer.CHUNK_SIZE,
                 "comment_ids": comment_ids,
+                "retry_count": 0,
+                "keywords": keywords,
             }
             with open(info_path, "w", encoding="utf-8") as f:
                 json.dump(info, f, ensure_ascii=False)
@@ -936,6 +973,7 @@ def api_ai_score_poll():
 
 _POLL_INTERVAL = 15 * 60  # 15 minutes
 _poll_lock = threading.Lock()
+_info_json_lock = threading.Lock()  # guards read-modify-write of _info.json files
 
 
 def _poll_all_batches() -> None:
@@ -952,8 +990,9 @@ def _poll_all_batches_inner() -> None:
     pattern = os.path.join(REPORTS_DIR, "**", "*_info.json")
     for info_path in glob.glob(pattern, recursive=True):
         try:
-            with open(info_path, "r", encoding="utf-8") as f:
-                info = json.load(f)
+            with _info_json_lock:
+                with open(info_path, "r", encoding="utf-8") as f:
+                    info = json.load(f)
 
             cb = info.get("claude_batch")
             if not cb or cb.get("status") != "in_progress":
@@ -991,11 +1030,12 @@ def _poll_all_batches_inner() -> None:
                     unscored_df = None
 
             retry_count = cb.get("retry_count", 0)
+            stored_keywords = cb.get("keywords")
             if unscored_df is not None and retry_count == 0:
                 # Auto-retry once for unscored comments
                 try:
-                    new_batch_id, new_comment_ids = batch_scorer.submit_batch(unscored_df)
-                    info["claude_batch"] = {
+                    new_batch_id, new_comment_ids = batch_scorer.submit_batch(unscored_df, keywords=stored_keywords)
+                    new_claude_batch = {
                         "batch_id": new_batch_id,
                         "submitted_at": datetime.now(timezone.utc).isoformat(),
                         "status": "in_progress",
@@ -1003,6 +1043,7 @@ def _poll_all_batches_inner() -> None:
                         "chunk_size": batch_scorer.CHUNK_SIZE,
                         "comment_ids": new_comment_ids,
                         "retry_count": 1,
+                        "keywords": stored_keywords,
                     }
                     logging.warning(
                         "Batch %s had %d unscored comments; auto-retrying as %s",
@@ -1010,32 +1051,35 @@ def _poll_all_batches_inner() -> None:
                     )
                 except Exception as retry_exc:
                     logging.warning("Auto-retry batch submission failed: %s", retry_exc)
-                    info["claude_batch"]["status"] = "partial_failure"
-                    info["claude_batch"]["unscored_count"] = len(unscored_df)
+                    new_claude_batch = dict(cb, status="partial_failure", unscored_count=len(unscored_df))
             elif unscored_df is not None and retry_count >= 1:
                 # Retry also left unscored comments — mark partial failure
-                info["claude_batch"]["status"] = "partial_failure"
-                info["claude_batch"]["unscored_count"] = len(unscored_df)
+                new_claude_batch = dict(cb, status="partial_failure", unscored_count=len(unscored_df))
                 logging.warning(
                     "Batch %s retry still left %d unscored; marking partial_failure",
                     batch_id, len(unscored_df),
                 )
             else:
-                info["claude_batch"]["status"] = "ended"
+                new_claude_batch = dict(cb, status="ended")
 
-            with open(info_path, "w", encoding="utf-8") as f:
-                json.dump(info, f, ensure_ascii=False)
+            with _info_json_lock:
+                with open(info_path, "r", encoding="utf-8") as f:
+                    info = json.load(f)
+                info["claude_batch"] = new_claude_batch
+                with open(info_path, "w", encoding="utf-8") as f:
+                    json.dump(info, f, ensure_ascii=False)
 
         except Exception as exc:
             logging.warning("Batch poll error for %s: %s", info_path, exc)
             try:
-                with open(info_path, "r", encoding="utf-8") as f:
-                    info = json.load(f)
-                if info.get("claude_batch", {}).get("status") == "in_progress":
-                    info["claude_batch"]["status"] = "error"
-                    info["claude_batch"]["error"] = str(exc)
-                    with open(info_path, "w", encoding="utf-8") as f:
-                        json.dump(info, f, ensure_ascii=False)
+                with _info_json_lock:
+                    with open(info_path, "r", encoding="utf-8") as f:
+                        info = json.load(f)
+                    if info.get("claude_batch", {}).get("status") == "in_progress":
+                        info["claude_batch"]["status"] = "error"
+                        info["claude_batch"]["error"] = str(exc)
+                        with open(info_path, "w", encoding="utf-8") as f:
+                            json.dump(info, f, ensure_ascii=False)
             except Exception:
                 pass
 

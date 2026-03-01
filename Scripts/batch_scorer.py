@@ -20,18 +20,34 @@ import pandas as pd
 CHUNK_SIZE = 50
 _MODEL = "claude-haiku-4-5-20251001"
 
-_SYSTEM_PROMPT = """\
-You analyse comments on a YouTube video to identify video topic potential.
+_SYSTEM_PROMPT_TEMPLATE = """\
+Score YouTube comments on topic idea potential for: {keywords}
 
-Rate each comment 1-10:
-  8-10  Clear actionable question or topic idea the creator could make a video about
-  4-7   Vague interest or partial topic signal
-  1-3   General praise, reaction, off-topic, or no usable topic idea
+Rating 1-10:
+9-10 Direct suggestion/request for a specific idea ("You should do X", "Can you try X?")
+7-8  Specific sub-topic or angle that could become content
+4-6  Tangential mention, too vague to act on
+1-3  Not an idea: praise, reactions, opinions, anecdotes, off-topic
 
-Confidence: how certain you are given the clarity of the comment (0-100).
+Confidence 1-10:
+9-10 Unambiguous intent
+6-8  Reasonable people would agree
+3-5  Could be read multiple ways
+1-2  Too short/vague to judge
 
-Return a JSON array in the same order as the input:
-[{"rating": N, "confidence": N}, ...]"""
+Examples:
+"You should do a tier list of budget keyboards" → {{"rating":10,"confidence":10}}
+"What about comparing Cherry vs Gateron switches?" → {{"rating":9,"confidence":9}}
+"The mechanical keyboard rabbit hole is deep" → {{"rating":3,"confidence":8}}
+"Great video!" → {{"rating":1,"confidence":10}}
+
+Return JSON array in input order: [{{"rating":N,"confidence":N}}, ...]"""
+
+
+def _build_system_prompt(keywords: list) -> str:
+    """Build system prompt with the given keywords injected."""
+    kw_str = ", ".join(keywords) if keywords else "video ideas"
+    return _SYSTEM_PROMPT_TEMPLATE.format(keywords=kw_str)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -62,20 +78,16 @@ def _get_client():
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def submit_batch(df: pd.DataFrame, system_prompt: str = None) -> tuple:
+def submit_batch(df: pd.DataFrame, keywords: list = None) -> tuple:
     """Submit a batch scoring job for the given DataFrame.
 
     Args:
         df: Filtered comments DataFrame with 'id' and 'text' columns.
-            The row order determines chunk assignment; preserve it from
-            the parquet so result mapping stays consistent.
+        keywords: List of keyword strings defining what to score for.
+                  Defaults to ['video ideas'] if empty/None.
 
     Returns:
         (batch_id, comment_ids)
-            batch_id     — Anthropic batch ID string (e.g. "msgbatch_01abc…")
-            comment_ids  — list of comment ID strings in submission order;
-                           store this in _info.json so results can be mapped
-                           back by ID even if parquet rows are later deleted.
 
     Raises:
         RuntimeError: If ANTHROPIC_API_KEY is missing or 'anthropic' is not installed.
@@ -89,7 +101,7 @@ def submit_batch(df: pd.DataFrame, system_prompt: str = None) -> tuple:
     texts = df["text"].fillna("").astype(str).tolist()
     comment_ids = df["id"].astype(str).tolist()
 
-    prompt = (system_prompt.strip() if system_prompt and system_prompt.strip() else None) or _SYSTEM_PROMPT
+    prompt = _build_system_prompt(keywords or [])
 
     requests = []
     for chunk_start in range(0, len(texts), CHUNK_SIZE):

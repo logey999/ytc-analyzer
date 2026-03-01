@@ -1,11 +1,56 @@
 // ── Dashboard: Reports list and analysis control ────────────────────────────
 
+// ── AI Scoring mode toggle ───────────────────────────────────────────────────
+
+function getAiMode() {
+  return localStorage.getItem('aiScoringMode') || 'manual';
+}
+
+function setAiMode(mode) {
+  if (mode === 'auto' && getAiMode() !== 'auto') {
+    const container = document.getElementById('auto-ai-keywords');
+    const kws = getAiKeywords();
+    container.innerHTML = kws.map(kw => `<span class="kw-tag">${esc(kw)}</span>`).join('');
+    document.getElementById('auto-ai-modal').classList.add('open');
+    return;
+  }
+  localStorage.setItem('aiScoringMode', mode);
+  _renderAiModeButtons();
+}
+
+function confirmAutoAi() {
+  document.getElementById('auto-ai-modal').classList.remove('open');
+  localStorage.setItem('aiScoringMode', 'auto');
+  _renderAiModeButtons();
+}
+
+function closeAutoAiModal(event) {
+  if (event && event.target !== document.getElementById('auto-ai-modal')) return;
+  document.getElementById('auto-ai-modal').classList.remove('open');
+}
+
+function _renderAiModeButtons() {
+  const mode = getAiMode();
+  document.getElementById('ai-mode-manual')?.classList.toggle('active', mode === 'manual');
+  document.getElementById('ai-mode-auto')?.classList.toggle('active', mode === 'auto');
+}
+
+async function triggerAutoAiScore(reportPath) {
+  try {
+    await fetch('/api/ai-score/' + reportPath, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords: getAiKeywords() }) });
+  } catch (_) { /* best-effort */ }
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const _jobs = new Map();
 let _lastReports = [];
 let _sortBy  = 'date'; // 'date' | 'name'
 let _sortDir = 'desc';
+let _reportPage = 0;
+const _reportsPerPage = 20;
 
 
 // ── Load reports ──────────────────────────────────────────────────────────────
@@ -45,6 +90,7 @@ function setSort(by) {
     _sortBy  = by;
     _sortDir = by === 'date' ? 'desc' : 'asc';
   }
+  _reportPage = 0;
   updateSortButtons();
   renderReports(_lastReports);
 }
@@ -75,13 +121,47 @@ function renderReports(reports, newPath = null) {
 
   if (!reports.length && !activeJobCards.length) {
     list.innerHTML = '<div class="reports-empty">No reports yet. Analyze a video to get started.</div>';
+    updateReportPagination(0);
     return;
   }
 
-  sortReports(reports).forEach(r => {
+  const sorted = sortReports(reports);
+  const total = sorted.length;
+  const start = _reportPage * _reportsPerPage;
+  const page = sorted.slice(start, start + _reportsPerPage);
+
+  page.forEach(r => {
     const isNew = newPath !== null && r.path === newPath;
     list.insertAdjacentHTML('beforeend', buildReportCardHTML(r, isNew));
   });
+
+  updateReportPagination(total);
+}
+
+function updateReportPagination(total) {
+  const el = document.getElementById('reports-pagination');
+  if (!el) return;
+  const totalPages = Math.max(1, Math.ceil(total / _reportsPerPage));
+  if (_reportPage >= totalPages) _reportPage = totalPages - 1;
+  if (total <= _reportsPerPage) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'flex';
+  const start = _reportPage * _reportsPerPage + 1;
+  const end = Math.min((_reportPage + 1) * _reportsPerPage, total);
+  el.querySelector('.pg-info').textContent = `${start}–${end} of ${total}`;
+  el.querySelector('.pg-prev').disabled = _reportPage === 0;
+  el.querySelector('.pg-next').disabled = _reportPage >= totalPages - 1;
+}
+
+function reportPagePrev() {
+  if (_reportPage > 0) { _reportPage--; renderReports(_lastReports); }
+}
+
+function reportPageNext() {
+  const totalPages = Math.ceil(_lastReports.length / _reportsPerPage);
+  if (_reportPage < totalPages - 1) { _reportPage++; renderReports(_lastReports); }
 }
 
 function buildReportCardHTML(r, isNew = false) {
@@ -104,7 +184,19 @@ function buildReportCardHTML(r, isNew = false) {
   const pathAttr = escAttr(r.path);
   const titleAttr = escAttr(r.title || r.path);
 
+  const aiIcon = r.ai_score_status === 'ended'
+    ? `<span class="report-card-ai-slot ai-scoring-badge ai-scoring-done" title="AI scored">&#10024;</span>`
+    : r.ai_score_status === 'in_progress'
+      ? `<button class="report-card-ai-slot btn-ai-refresh spinning" title="AI scoring in progress — click to check now" data-path="${pathAttr}" onclick="checkDashboardScoring(event, this)">&#10227;</button>`
+      : `<span class="report-card-ai-slot"></span>`;
+
   return `<a class="report-card${newClass}" href="/report?path=${encodeURIComponent(r.path)}">
+    <button class="report-card-delete-btn" title="Delete report"
+      data-path="${pathAttr}" data-title="${titleAttr}"
+      onclick="openDeleteReportModal(event, this)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    </button>
+    ${aiIcon}
     ${thumb}
     <div class="report-card-body">
       <div class="report-card-title">${esc(r.title || r.path)}</div>
@@ -115,11 +207,6 @@ function buildReportCardHTML(r, isNew = false) {
         ${statsLabel ? `<span>&#183; ${esc(statsLabel)}</span>` : ''}
       </div>
     </div>
-    <button class="report-card-delete-btn" title="Delete report"
-      data-path="${pathAttr}" data-title="${titleAttr}"
-      onclick="openDeleteReportModal(event, this)">&#10005;</button>
-    ${r.ai_score_status === 'in_progress' ? `<span class="ai-scoring-badge" title="AI scoring in progress…">✨</span>` : ''}
-    <span class="report-card-arrow">&#8594;</span>
   </a>`;
 }
 
@@ -226,11 +313,8 @@ function setJobDone(jobKey, title, reportPath) {
     window.location.href = '/report?path=' + encodeURIComponent(reportPath);
   };
 
-  const arrow = document.createElement('a');
-  arrow.className = 'report-card-arrow';
-  arrow.href = '/report?path=' + encodeURIComponent(reportPath);
-  arrow.textContent = '→';
-  card.appendChild(arrow);
+  // Auto AI scoring
+  if (getAiMode() === 'auto') triggerAutoAiScore(reportPath);
 
   // After a short pause, slide the temp card out, then swap in the real card
   setTimeout(() => {
@@ -371,6 +455,20 @@ function streamProgress(jobKey, serverId) {
   };
 }
 
+// ── Dashboard AI scoring check ───────────────────────────────────────────
+
+async function checkDashboardScoring(event, btn) {
+  event.preventDefault();
+  event.stopPropagation();
+  btn.disabled = true;
+  try {
+    await fetch('/api/ai-score-poll', { method: 'POST' });
+    loadReports();
+  } catch (_) {} finally {
+    btn.disabled = false;
+  }
+}
+
 // ── Keyboard support ──────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -440,6 +538,7 @@ async function confirmDeleteReport(disposition) {
 
 document.addEventListener('DOMContentLoaded', () => {
   updateSortButtons();
+  _renderAiModeButtons();
   loadReports();
 });
 

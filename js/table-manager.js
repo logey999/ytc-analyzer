@@ -29,6 +29,12 @@ class TableManager {
       JSON.parse(localStorage.getItem(config.colPrefKey) || '{}')
     );
 
+    // AI score filters (persisted per page)
+    const filterKey = (config.colPrefKey || '').replace('cols', 'filters');
+    this._filterKey = filterKey;
+    const saved = JSON.parse(localStorage.getItem(filterKey) || '{}');
+    this.filters = { minScore: saved.minScore ?? 0, minConf: saved.minConf ?? 0 };
+
     this.loaded = false;
     this.loading = false;
   }
@@ -80,27 +86,29 @@ class TableManager {
     this.sort(this.sortCol, this.sortDir);
   }
 
+  // Get data filtered by AI score sliders
+  getFilteredData() {
+    const { minScore, minConf } = this.filters;
+    if (!minScore && !minConf) return this.data;
+    return this.data.filter(c => {
+      if (minScore && (Number(c.topic_rating) || 0) < minScore) return false;
+      if (minConf && (Number(c.topic_confidence) || 0) < minConf) return false;
+      return true;
+    });
+  }
+
   // Render current page of data
   render() {
-    const total = this.data.length;
+    const filtered = this.getFilteredData();
+    const total = filtered.length;
     const totalPages = Math.max(1, Math.ceil(total / this.config.pageSize));
     this.page = Math.max(0, Math.min(this.page, totalPages - 1));
     const start = this.page * this.config.pageSize;
-    const slice = this.data.slice(start, start + this.config.pageSize);
-
-    // Check if empty
-    if (!total) {
-      document.getElementById(this.config.panelId).innerHTML =
-        `<div class="reports-empty">${this.config.emptyMessage || 'No data.'}</div>`;
-      this.setTabCount(0);
-      return;
-    }
-
-    // Build rows
-    const rows = slice.map((c, idx) => this._buildRow(c, start + idx)).join('');
+    const slice = filtered.slice(start, start + this.config.pageSize);
 
     // Build paginator
-    const info = `Page ${this.page + 1} of ${totalPages} &nbsp;·&nbsp; ${total.toLocaleString()} total`;
+    const isFiltered = total !== this.data.length;
+    const info = `Page ${this.page + 1} of ${totalPages} &nbsp;·&nbsp; ${total.toLocaleString()}${isFiltered ? ` / ${this.data.length.toLocaleString()}` : ''} total`;
     const atFirst = this.page === 0;
     const atLast = this.page >= totalPages - 1;
 
@@ -111,19 +119,53 @@ class TableManager {
       `__tableManagers['${this.config.panelId}'].toggleColumn`
     );
 
+    // Build AI filter sliders
+    const mgr = `__tableManagers['${this.config.panelId}']`;
+    const hasAiCols = this.config.columns.some(c => c.id === 'topic_rating');
+    const filterHtml = hasAiCols ? `
+      <div class="ai-filter-sliders">
+        <label title="Minimum AI Score (1-10)">Score ≥ <strong>${this.filters.minScore || '—'}</strong>
+          <input type="range" min="0" max="10" step="1" value="${this.filters.minScore}"
+            oninput="${mgr}.previewFilter('minScore', +this.value)"
+            onchange="${mgr}.setFilter('minScore', +this.value)">
+        </label>
+        <label title="Minimum AI Confidence (0-10)">Conf ≥ <strong>${this.filters.minConf || '—'}</strong>
+          <input type="range" min="0" max="10" step="1" value="${this.filters.minConf}"
+            oninput="${mgr}.previewFilter('minConf', +this.value)"
+            onchange="${mgr}.setFilter('minConf', +this.value)">
+        </label>
+      </div>` : '';
+
     // Build unified toolbar with pagination info, column selector, and nav buttons
     const toolbar = `
       <div class="agg-toolbar">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="pg-info">${info}</span>
-          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(-1)" ${atFirst ? 'disabled' : ''}>&#8592; Prev</button>
-          <button class="pg-btn" onclick="__tableManagers['${this.config.panelId}'].changePage(1)"  ${atLast ? 'disabled' : ''}>Next &#8594;</button>
+          <button class="pg-btn" onclick="${mgr}.changePage(-1)" ${atFirst ? 'disabled' : ''}>&#8592; Prev</button>
+          <button class="pg-btn" onclick="${mgr}.changePage(1)"  ${atLast ? 'disabled' : ''}>Next &#8594;</button>
         </div>
-        ${colSelector}
+        <div style="display:flex;align-items:center;gap:12px">
+          ${filterHtml}
+          ${colSelector}
+          ${this.config.toolbarExtra || ''}
+        </div>
       </div>`;
 
     // Render to DOM
     const panel = document.getElementById(this.config.panelId);
+
+    // Check if empty (after filters) — still show toolbar so user can adjust sliders
+    if (!total) {
+      const emptyMsg = isFiltered
+        ? 'No comments match the current filters.'
+        : (this.config.emptyMessage || 'No data.');
+      panel.innerHTML = `${toolbar}<div class="reports-empty">${emptyMsg}</div>`;
+      this.setTabCount(0);
+      return;
+    }
+
+    // Build rows
+    const rows = slice.map((c, idx) => this._buildRow(c, start + idx)).join('');
     const theadHtml = this._buildTableHead();
     panel.innerHTML = `
       ${toolbar}
@@ -276,6 +318,26 @@ class TableManager {
     }
 
     this.data.sort((a, b) => _sortCmp(a, b, this.sortCol, this.sortDir));
+    this.page = 0;
+    this.render();
+  }
+
+  // Live-update the slider label while dragging (no re-render)
+  previewFilter(key, value) {
+    this.filters[key] = value;
+    const panel = document.getElementById(this.config.panelId);
+    if (!panel) return;
+    const slider = panel.querySelector(`.ai-filter-sliders input[onchange*="'${key}'"]`);
+    if (slider) {
+      const strong = slider.closest('label').querySelector('strong');
+      if (strong) strong.textContent = value || '—';
+    }
+  }
+
+  // Commit AI filter value and re-render (called on slider release)
+  setFilter(key, value) {
+    this.filters[key] = value;
+    localStorage.setItem(this._filterKey, JSON.stringify(this.filters));
     this.page = 0;
     this.render();
   }

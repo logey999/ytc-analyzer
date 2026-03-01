@@ -36,6 +36,21 @@
   <div class="loading-msg">Loading deleted comments…</div>
 </div>
 
+<!-- ── Delete All Modal ──────────────────────────────────────────────────── -->
+<div id="deleted-delete-all-modal" class="modal-overlay" onclick="closeDeleteAllModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">Clear Deleted</span>
+      <button class="modal-close" onclick="closeDeleteAllModal()">&times;</button>
+    </div>
+    <p class="modal-desc">Permanently delete all deleted comments? This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="confirmDeleteAll()">Delete All</button>
+      <button class="btn btn-secondary" onclick="closeDeleteAllModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/deleted.js"></script>
 </body>
 </html>
