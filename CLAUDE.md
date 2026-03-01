@@ -34,7 +34,6 @@ Scripts/
   server.py           Flask web server (port 5000)
   comment_store.py    CommentStore — Parquet-based persistence (saved/blacklist/deleted)
   batch_scorer.py     AI scoring — submits comments to Anthropic Batches API; polls & writes results
-  api_reports.py      Blueprint skeleton (not wired into server.py yet)
 
 Reports/              Auto-created output folder
   saved.parquet       Cross-report saved comments
@@ -169,7 +168,7 @@ Reports/{channel_slug}/{video_slug}/{video_slug}_{type}_YYYY-MM-DD.{ext}
 
 ### Comment Filtering (`filter_low_value`)
 Filters ordered cheapest → most expensive; all default `True`:
-- `min_chars` — drop < `min_chars_threshold` chars (default 3)
+- `min_chars` — drop < `min_chars_threshold` chars (default 20)
 - `min_alpha` — drop < 2 alphabetic chars
 - `min_words` — drop < `min_words_threshold` words (default 3)
 - `emoji_only` — drop if non-emoji content is empty (requires `emoji`)
@@ -177,8 +176,8 @@ Filters ordered cheapest → most expensive; all default `True`:
 - `timestamp_only` — drop bare timestamps (`"2:34"`, `"1:23:45"`)
 - `repeat_char` — drop 5+ identical consecutive chars
 - `blacklist_match` — drop if matches existing blacklist text (requires `blacklist_texts` set)
-- `english_only` — drop non-English (requires `langdetect`)
-- `sentiment_filter` — drop comments with VADER compound score ≤ `sentiment_threshold` (default −0.5; requires `vaderSentiment`)
+- `english_only` — drop non-English; `english_confidence` default 0.5 (requires `lingua-language-detector`)
+- `sentiment_filter` — drop comments with VADER compound score ≤ `sentiment_threshold` (default −0.8; requires `vaderSentiment`)
 - `dedup` — remove exact and near-duplicates; `dedup_threshold` default 85% (requires `rapidfuzz`)
 
 ### CommentStore (`comment_store.py`)
@@ -234,5 +233,5 @@ Rates comments 1–10 on **video topic potential** using `claude-haiku-4-5-20251
 - **Self-contained HTML reports**: inlined CSS, no external deps
 - **Single-ownership comment model**: enforces one store per comment
 - **SSE for progress**: avoids polling; stream closes when job completes
-- **`api_reports.py`**: Blueprint skeleton not yet wired into `server.py`
 - **`vaderSentiment`**: used by `sentiment_filter` in `filter_low_value` to drop strongly negative comments
+- **`lingua`**: used by `english_only` filter for accurate language detection on short text

@@ -138,14 +138,14 @@ def filter_low_value(
     min_alpha: bool = True,
     min_words: bool = True,
     min_words_threshold: int = 3,
+    # ── set-lookup against external store (fast O(n+m)) ──────────────────
+    blacklist_match: bool = True,
+    blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
     # ── per-row regex checks ──────────────────────────────────────────────
     emoji_only: bool = True,
     url_only: bool = True,
     timestamp_only: bool = True,
     repeat_char: bool = True,
-    # ── set-lookup against external store (fast O(n+m)) ──────────────────
-    blacklist_match: bool = True,
-    blacklist_texts: set = None,   # pre-built set of lowercased blacklisted texts
     # ── per-row ML inference (slow) ───────────────────────────────────────
     english_only: bool = True,
     english_confidence: float = 0.5,
@@ -200,7 +200,14 @@ def filter_low_value(
         _apply(mask, "Too Few Words")
         df = df[mask]
 
-    # ── 2. per-row regex checks ────────────────────────────────────────────
+    # ── 2. set-lookup against blacklist (O(n+m), vectorized isin) ──────────
+    if blacklist_match and blacklist_texts:
+        norm = df["text"].str.lower().str.strip()
+        mask = ~norm.isin(blacklist_texts)
+        _apply(mask, "Blacklisted")
+        df = df[mask]
+
+    # ── 3. per-row regex checks ────────────────────────────────────────────
     if emoji_only:
         stripped = df["text"].apply(_strip_emoji).str.strip()
         mask = stripped.str.len() >= 2
@@ -221,13 +228,6 @@ def filter_low_value(
     if repeat_char:
         mask = ~df["text"].apply(lambda t: bool(_REPEAT_CHAR_RE.search(t)))
         _apply(mask, "Repeated Chars")
-        df = df[mask]
-
-    # ── 3. set-lookup against blacklist (O(n+m), vectorized isin) ──────────
-    if blacklist_match and blacklist_texts:
-        norm = df["text"].str.lower().str.strip()
-        mask = ~norm.isin(blacklist_texts)
-        _apply(mask, "Blacklisted")
         df = df[mask]
 
     # ── 4. per-row language detection (slow — runs after cheap filters) ────
