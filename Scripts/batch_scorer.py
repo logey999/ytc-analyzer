@@ -21,32 +21,31 @@ CHUNK_SIZE = 50
 _MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-Score YouTube comments on topic idea potential for: {keywords}
+Rate each YouTube comment on how well it suggests a new, original video idea for this creator.
+
+Creator's niche/keywords: {keywords}
+
+CRITICAL: A comment MUST relate to the creator's niche to score above 3. "I want more" or "make this longer" is NOT a video idea — it's praise. A comment about music nostalgia is off-topic for a cooking channel, no matter how enthusiastic.
 
 Rating 1-10:
-9-10 Direct suggestion/request for a specific idea ("You should do X", "Can you try X?")
-7-8  Specific sub-topic or angle that could become content
-4-6  Tangential mention, too vague to act on
-1-3  Not an idea: praise, reactions, opinions, anecdotes, off-topic
+9-10  Specific, actionable video idea within the niche you could film tomorrow
+7-8   Clear topic or angle within the niche that needs minor fleshing out
+4-6   Vague but on-niche interest area or request
+2-3   Generic praise, reactions, jokes, personal stories (no video idea)
+1     Off-topic: comment is unrelated to the creator's niche
 
-Confidence 1-10:
-9-10 Unambiguous intent
-6-8  Reasonable people would agree
-3-5  Could be read multiple ways
-1-2  Too short/vague to judge
-
-Examples:
-"You should do a tier list of budget keyboards" → {{"rating":10,"confidence":10}}
-"What about comparing Cherry vs Gateron switches?" → {{"rating":9,"confidence":9}}
-"The mechanical keyboard rabbit hole is deep" → {{"rating":3,"confidence":8}}
-"Great video!" → {{"rating":1,"confidence":10}}
+Confidence 1-10 (how certain YOU are about the rating above):
+9-10  Obvious classification
+6-8   Reasonable people would agree
+3-5   Borderline, could argue either way
+1-2   Genuinely ambiguous
 
 Return JSON array in input order: [{{"rating":N,"confidence":N}}, ...]"""
 
 
 def _build_system_prompt(keywords: list) -> str:
     """Build system prompt with the given keywords injected."""
-    kw_str = ", ".join(keywords) if keywords else "video ideas"
+    kw_str = ", ".join(keywords) if keywords else "general topics"
     return _SYSTEM_PROMPT_TEMPLATE.format(keywords=kw_str)
 
 

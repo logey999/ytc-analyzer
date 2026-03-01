@@ -1,6 +1,6 @@
 // ── AI Keywords ───────────────────────────────────────────────────────────────
 
-const _DEFAULT_KEYWORDS = ['video ideas'];
+const _DEFAULT_KEYWORDS = [];
 const _KEYWORDS_STORAGE_KEY = 'ytca_ai_keywords';
 const _MAX_KEYWORDS = 10;
 
@@ -16,7 +16,7 @@ function getAiKeywords() {
 }
 
 function setAiKeywords(keywords) {
-  if (!keywords.length || (keywords.length === 1 && keywords[0] === _DEFAULT_KEYWORDS[0])) {
+  if (!keywords.length) {
     localStorage.removeItem(_KEYWORDS_STORAGE_KEY);
   } else {
     localStorage.setItem(_KEYWORDS_STORAGE_KEY, JSON.stringify(keywords));
@@ -46,8 +46,8 @@ function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel 
       ${bodyHtml ? `<div id="_pm-body">${bodyHtml}</div>` : ''}
       <div style="padding:0 0 10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span class="api-key-label" style="margin:0">Keywords <span id="_pm-count" style="color:var(--text-3);font-weight:normal">(${keywords.length}/${_MAX_KEYWORDS})</span></span>
-          <button class="btn btn-secondary" id="_pm-reset" style="font-size:0.75rem;padding:2px 8px">Reset to Default</button>
+          <span class="api-key-label" style="margin:0">Keywords (Example: cooking, fresh, homestyle) <span id="_pm-count" style="color:var(--text-3);font-weight:normal">(${keywords.length}/${_MAX_KEYWORDS})</span></span>
+          <button class="btn btn-secondary" id="_pm-reset" style="font-size:0.75rem;padding:2px 8px">Clear All</button>
         </div>
         <div id="_pm-tags" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:8px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;margin-bottom:8px"></div>
         <div style="display:flex;gap:6px">
@@ -55,7 +55,7 @@ function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel 
             style="flex:1;background:var(--bg-2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.85rem;box-sizing:border-box">
           <button class="nav-btn" id="_pm-add" style="white-space:nowrap">Add</button>
         </div>
-        <p style="color:var(--text-3);font-size:0.75rem;margin:6px 0 0">Comments matching any keyword score higher. Press Enter to add.</p>
+        <p style="color:var(--text-3);font-size:0.75rem;margin:6px 0 0">At least 1 keyword required. Comments matching any keyword score higher. Press Enter to add.</p>
       </div>
       <div class="modal-actions">
         <button class="nav-btn" id="_pm-cancel">Cancel</button>
@@ -78,6 +78,8 @@ function showAiPromptModal({ title = '✨ AI Score', bodyHtml = '', submitLabel 
     });
     const countEl = document.getElementById('_pm-count');
     if (countEl) countEl.textContent = `(${keywords.length}/${_MAX_KEYWORDS})`;
+    const submitBtn = document.getElementById('_pm-submit');
+    if (submitBtn) submitBtn.disabled = keywords.length === 0 || submitDisabled;
   }
 
   function addKeyword() {
@@ -258,3 +260,47 @@ function applyColVisibility(panelId, prefs) {
     });
   });
 }
+
+// ── Keyboard arrow-key pagination ─────────────────────────────────────────────
+const _PG_TIP_KEY = 'ytca_pg_arrow_tip_dismissed';
+
+function _showPaginationTip() {
+  if (localStorage.getItem(_PG_TIP_KEY)) return;
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:400px">
+      <div class="modal-header">
+        <span class="modal-title">Tip</span>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-desc">You can use the <b>← →</b> keyboard keys to navigate between pages.</div>
+      <label style="display:flex;align-items:center;gap:8px;padding:12px 20px;font-size:0.85rem;color:var(--text-2);cursor:pointer">
+        <input type="checkbox" id="_pg-tip-dismiss"> Don't show again
+      </label>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => {
+    if (e.target === modal) modal.remove();
+  });
+  modal.querySelector('#_pg-tip-dismiss').addEventListener('change', function() {
+    if (this.checked) localStorage.setItem(_PG_TIP_KEY, '1');
+    else localStorage.removeItem(_PG_TIP_KEY);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.pg-btn');
+  if (btn && !btn.disabled) _showPaginationTip();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select, [contenteditable]')) return;
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const btns = document.querySelectorAll('.pg-btn:not([disabled])');
+  for (const btn of btns) {
+    const text = btn.textContent;
+    if (e.key === 'ArrowLeft' && text.includes('Prev')) { btn.click(); return; }
+    if (e.key === 'ArrowRight' && text.includes('Next')) { btn.click(); return; }
+  }
+});

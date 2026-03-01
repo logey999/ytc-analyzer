@@ -33,7 +33,7 @@ const aggTable = new TableManager({
     video: false,
   },
   emptyMessage: 'No comments yet.',
-  toolbarExtra: '<button class="btn btn-secondary" id="save-all-btn" onclick="saveAllFiltered()" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
+  toolbarExtra: '<span id="scoring-controls"><button class="btn-ai-refresh pulsing btn-ai-refresh-lg" id="ai-score-all-btn" onclick="openAiScoreModal()" title="AI Score All">&#10227;</button></span><button class="btn-ai-refresh" id="ai-score-check-btn" onclick="checkScoringNow()" title="Poll Anthropic for results now" style="display:none">&#8635;</button><button class="btn btn-secondary" id="save-all-btn" onclick="saveAllFiltered()" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
   actions: [
     { label: '+', title: 'Save', className: 'btn-save', handler: aggToSave },
     { label: '🚫', title: 'Add to Blacklist', className: 'btn-blacklist', handler: aggToBlacklist },
@@ -148,14 +148,28 @@ async function _updateAiScoreAllState() {
   try {
     const res = await fetch(CONFIG.api.aiScoreAggregate);
     const data = await res.json();
-    const nothingToScore = (data.eligible_count || 0) === 0 && (data.pending_count || 0) === 0;
-    const nothingToPoll = (data.pending_count || 0) === 0;
-    btn.disabled = nothingToScore;
-    btn.title = nothingToScore
-      ? (data.scored_count > 0 ? 'All comments are already scored' : 'No comments available for scoring')
-      : '';
+    const eligibleCount = data.eligible_count || 0;
+    const hasPending = (data.pending_count || 0) > 0;
+    const canSubmit = eligibleCount > 0;
+    btn.disabled = !canSubmit;
+    if (hasPending && !canSubmit) {
+      btn.style.display = 'none';
+      _startAggregateScoringPoll();
+    } else if (canSubmit) {
+      btn.style.display = '';
+      btn.className = 'btn-ai-refresh pulsing btn-ai-refresh-lg';
+      btn.title = '';
+    } else {
+      btn.style.display = '';
+      btn.className = 'btn-ai-refresh btn-ai-refresh-lg';
+      btn.title = data.scored_count > 0 ? 'All comments are already scored' : 'No comments available for scoring';
+    }
     const pollBtn = document.getElementById('ai-score-check-btn');
-    if (pollBtn) pollBtn.style.display = nothingToPoll ? 'none' : '';
+    if (pollBtn) {
+      pollBtn.style.display = hasPending ? '' : 'none';
+      if (hasPending) pollBtn.classList.add('spinning');
+      else pollBtn.classList.remove('spinning');
+    }
   } catch (_) {}
 }
 
@@ -254,7 +268,7 @@ let _scoringPollTimer = null;
 async function openAiScoreModal() {
   // Show a loading state briefly while fetching counts
   const scoreAllBtn = document.getElementById('ai-score-all-btn');
-  if (scoreAllBtn) { scoreAllBtn.disabled = true; scoreAllBtn.textContent = 'Loading…'; }
+  if (scoreAllBtn) { scoreAllBtn.disabled = true; }
 
   let bodyHtml = '<p class="modal-desc" style="color:var(--text-3)">Checking scoring status…</p>';
   let eligible_count = 0;
@@ -290,7 +304,7 @@ async function openAiScoreModal() {
   } catch (e) {
     bodyHtml = `<p class="modal-desc" style="color:#f87171">Failed to load status: ${esc(e.message)}</p>`;
   } finally {
-    if (scoreAllBtn) { scoreAllBtn.disabled = false; scoreAllBtn.textContent = '✨ AI Score All'; }
+    if (scoreAllBtn) { scoreAllBtn.disabled = false; scoreAllBtn.className = 'btn-ai-refresh pulsing btn-ai-refresh-lg'; }
   }
 
   showAiPromptModal({
@@ -308,7 +322,7 @@ async function openAiScoreModal() {
         const data = await res.json();
         if (data.error) { alert('AI Scoring error: ' + data.error); return; }
         const btn = document.getElementById('ai-score-all-btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Scoring…'; }
+        if (btn) { btn.disabled = true; btn.className = 'btn-ai-refresh spinning btn-ai-refresh-lg'; }
         aggTable.config.scoringInProgress = true;
         aggTable.colPrefs.topic_rating = true;
         aggTable.colPrefs.topic_confidence = true;
@@ -324,14 +338,14 @@ async function openAiScoreModal() {
 
 async function checkScoringNow() {
   const btn = document.getElementById('ai-score-check-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
   try {
     await fetch('/api/ai-score-poll', { method: 'POST' });
     await aggTable.loadAggregate();
   } catch (e) {
     console.error('Check scoring error:', e);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '&#10227;'; }
+    if (btn) { btn.disabled = false; }
   }
 }
 
@@ -350,7 +364,7 @@ function _startAggregateScoringPoll() {
         clearInterval(_scoringPollTimer);
         _scoringPollTimer = null;
         const btn = document.getElementById('ai-score-all-btn');
-        if (btn) { btn.disabled = false; btn.textContent = '✨ AI Score All'; }
+        if (btn) { btn.disabled = false; btn.className = 'btn-ai-refresh pulsing btn-ai-refresh-lg'; }
         aggTable.loadAggregate();
       }
     } catch (_) {}

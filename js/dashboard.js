@@ -10,6 +10,11 @@ function getAiMode() {
 
 function setAiMode(mode) {
   if (mode === 'auto' && !_hasAnthropicKey) return;
+  if (mode === 'auto' && !getAiKeywords().length) {
+    showAiPromptModal({ title: '✨ Configure Keywords', submitLabel: 'Enable Auto Scoring',
+      onConfirm: () => { setAiMode('auto'); } });
+    return;
+  }
   if (mode === 'auto' && getAiMode() !== 'auto') {
     const container = document.getElementById('auto-ai-keywords');
     const kws = getAiKeywords();
@@ -61,6 +66,8 @@ async function _loadAnthropicKeyStatus() {
 }
 
 async function triggerAutoAiScore(reportPath) {
+  const kws = getAiKeywords();
+  if (!kws.length) return;
   try {
     await fetch('/api/ai-score/' + reportPath, { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -213,7 +220,7 @@ function buildReportCardHTML(r, isNew = false) {
     ? `<span class="report-card-ai-slot ai-scoring-badge ai-scoring-done" title="AI scored">&#10024;</span>`
     : r.ai_score_status === 'in_progress'
       ? `<button class="report-card-ai-slot btn-ai-refresh spinning" title="AI scoring in progress — click to check now" data-path="${pathAttr}" onclick="checkDashboardScoring(event, this)">&#10227;</button>`
-      : `<span class="report-card-ai-slot"></span>`;
+      : `<button class="report-card-ai-slot btn-ai-refresh pulsing" title="AI Score" data-path="${pathAttr}" onclick="triggerDashboardScoring(event, this)">&#10227;</button>`;
 
   return `<a class="report-card${newClass}" href="/report?path=${encodeURIComponent(r.path)}">
     <button class="report-card-delete-btn" title="Delete report"
@@ -481,6 +488,31 @@ function streamProgress(jobKey, serverId) {
 }
 
 // ── Dashboard AI scoring check ───────────────────────────────────────────
+
+function triggerDashboardScoring(event, btn) {
+  event.preventDefault();
+  event.stopPropagation();
+  const path = btn.dataset.path;
+  if (!path) return;
+  showAiPromptModal({
+    title: '✨ AI Score',
+    bodyHtml: '<p class="modal-desc">Submit this report for AI scoring.</p><p class="modal-desc" style="color:var(--text-3)">Scoring uses the Anthropic Batches API. Results are written back automatically when ready.</p>',
+    submitLabel: 'Start Scoring',
+    onConfirm: async (keywords) => {
+      btn.classList.remove('pulsing');
+      btn.classList.add('spinning');
+      btn.disabled = true;
+      try {
+        await fetch('/api/ai-score/' + path, { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords }) });
+        loadReports();
+      } catch (_) {} finally {
+        btn.disabled = false;
+      }
+    },
+  });
+}
 
 async function checkDashboardScoring(event, btn) {
   event.preventDefault();

@@ -241,7 +241,7 @@ button {
   border-radius: 50%;
   background:
     radial-gradient(circle 4px at 50% 0%,    var(--cyan) 50%, transparent 51%),
-    radial-gradient(circle 4px at 50% 100%,   rgba(168,130,255,0.8) 50%, transparent 51%);
+    radial-gradient(circle 4px at 50% 100%,   var(--red) 50%, transparent 51%);
   opacity: 0.5;
   transition: opacity 0.2s;
   animation: none;
@@ -262,6 +262,32 @@ button {
 @keyframes ai-orbit {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+
+@keyframes ai-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50%      { transform: scale(1.15); opacity: 1; }
+}
+
+.btn-ai-refresh.pulsing::after {
+  opacity: 1;
+  animation: ai-pulse 2s ease-in-out infinite;
+}
+
+.btn-ai-refresh-lg {
+  width: 40px;
+  height: 40px;
+}
+
+.btn-ai-refresh-lg::before {
+  font-size: 1rem;
+}
+
+.btn-ai-refresh-lg::after {
+  inset: -6px;
+  background:
+    radial-gradient(circle 5px at 50% 0%,    var(--cyan) 50%, transparent 51%),
+    radial-gradient(circle 5px at 50% 100%,   var(--red) 50%, transparent 51%);
 }
 
 .btn-ai-refresh:disabled {

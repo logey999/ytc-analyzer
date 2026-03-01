@@ -125,7 +125,6 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
       <div class="strip-actions">
         ${yt_url ? `<a href="${escAttr(yt_url)}" class="nav-btn" target="_blank" rel="noopener">Watch &#8599;</a>` : ''}
         <button class="nav-btn" onclick="toggleDesc(this)">Description</button>
-        ${_renderScoringButton(cb, hasUnscored)}
       </div>
       <div class="video-desc" id="video-desc">${esc(vi.description || '')}</div>
     </div>
@@ -171,7 +170,7 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
     },
     scoringInProgress: cb && cb.status === 'in_progress',
     emptyMessage: 'No comments.',
-    toolbarExtra: '<button class="btn btn-secondary" onclick="saveAllFiltered()" id="save-all-btn" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>',
+    toolbarExtra: `${_renderScoringButton(cb, hasUnscored)}<button class="btn btn-secondary" onclick="saveAllFiltered()" id="save-all-btn" style="white-space:nowrap">Save All</button><button class="btn btn-danger" onclick="showDeleteAllModal()" style="white-space:nowrap;border:1px solid rgba(255,45,45,0.3)">Delete All</button>`,
     actions: [
       {
         label: '+',
@@ -259,20 +258,20 @@ function _renderScoringButton(cb, hasUnscored = false) {
   const status = cb && cb.status;
   let inner = '';
   if (!status) {
-    inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()">&#10024; AI Score</button>`;
+    inner = `<button class="btn-ai-refresh pulsing btn-ai-refresh-lg" id="ai-score-btn" onclick="runAiScoring()" title="AI Score">&#10227;</button>`;
   } else if (status === 'in_progress') {
-    inner = `<button class="btn-ai-refresh spinning" id="ai-score-check-btn" onclick="checkScoringNow()" title="AI scoring in progress — click to check now">&#10227;</button>`;
+    inner = `<button class="btn-ai-refresh spinning btn-ai-refresh-lg" id="ai-score-check-btn" onclick="checkScoringNow()" title="AI scoring in progress — click to check now">&#10227;</button>`;
   } else if (status === 'ended') {
     if (hasUnscored) {
-      inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10024; Score Remaining</button>`;
+      inner = `<button class="btn-ai-refresh pulsing btn-ai-refresh-lg" id="ai-score-btn" onclick="runAiScoring()" title="Some comments were not scored — click to score remaining">&#10227;</button>`;
     } else {
-      inner = `<span class="nav-btn disabled" id="ai-score-btn" title="AI scoring complete">Scored &#10003;</span>`;
+      inner = `<button class="btn-ai-refresh btn-ai-refresh-lg" id="ai-score-btn" disabled title="All comments scored">&#10227;</button>`;
     }
   } else if (status === 'partial_failure') {
     const unscored = cb.unscored_count ? ` (${cb.unscored_count} unscored)` : '';
-    inner = `<button class="nav-btn btn-warning" id="ai-score-btn" onclick="runAiScoring()" title="Scoring partially failed${unscored} — click to retry remaining">&#9888; Partial Failure</button>`;
+    inner = `<button class="btn-ai-refresh pulsing btn-ai-refresh-lg" id="ai-score-btn" onclick="runAiScoring()" title="Scoring partially failed${unscored} — click to retry">&#10227;</button>`;
   } else if (status === 'error') {
-    inner = `<button class="nav-btn" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10024; Retry Score</button>`;
+    inner = `<button class="btn-ai-refresh pulsing btn-ai-refresh-lg" id="ai-score-btn" onclick="runAiScoring()" title="Previous attempt failed — click to retry">&#10227;</button>`;
   }
   return `<span id="scoring-controls">${inner}</span>`;
 }

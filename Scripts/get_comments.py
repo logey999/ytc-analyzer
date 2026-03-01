@@ -141,7 +141,7 @@ def _fetch_video_info(youtube, video_id: str) -> dict:
     }
 
 
-def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[dict], int]:
+def _fetch_all_comments(youtube, video_id: str, on_progress=None, total_expected: int = 0) -> tuple[list[dict], int]:
     """Paginate through all comments (top-level + replies) for a video.
 
     Returns (all_comments, units_used)
@@ -150,7 +150,6 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
     all_comments = []
     page_token = None
     units = 0
-    total_expected = 0
 
     while True:
         request = youtube.commentThreads().list(
@@ -164,8 +163,6 @@ def _fetch_all_comments(youtube, video_id: str, on_progress=None) -> tuple[list[
         try:
             response = _api_request_with_retry(request)
             units += 1  # commentThreads.list costs 1 unit
-            if not total_expected:
-                total_expected = response.get("pageInfo", {}).get("totalResults", 0)
         except HttpError as e:
             if e.resp.status == 403:
                 reason = ""
@@ -311,7 +308,7 @@ def get_comments(url: str, on_progress=None) -> tuple[dict, pd.DataFrame, int]:
         on_progress("Fetching comments…", 0)
     else:
         print("  Fetching comments...")
-    comments, units = _fetch_all_comments(youtube, video_id, on_progress=on_progress)
+    comments, units = _fetch_all_comments(youtube, video_id, on_progress=on_progress, total_expected=video_info.get("comment_count", 0))
 
     df = pd.DataFrame(comments) if comments else pd.DataFrame(
         columns=["id", "author", "text", "like_count", "timestamp", "parent"]
