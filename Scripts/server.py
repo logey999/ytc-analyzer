@@ -437,8 +437,24 @@ def api_reports():
         except Exception:
             continue
 
-    results.sort(key=lambda x: x.get("created_at", x.get("date", "")), reverse=True)
-    return jsonify(results)
+    # Auto-delete reports with 0 comments remaining in parquet
+    kept = []
+    for r in results:
+        if r["comment_count"] <= 0:
+            folder = os.path.join(REPORTS_DIR, r["path"].replace("/", os.sep))
+            if os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+                channel_folder = os.path.dirname(folder)
+                try:
+                    if channel_folder != REPORTS_DIR and not os.listdir(channel_folder):
+                        os.rmdir(channel_folder)
+                except Exception:
+                    pass
+        else:
+            kept.append(r)
+
+    kept.sort(key=lambda x: x.get("created_at", x.get("date", "")), reverse=True)
+    return jsonify(kept)
 
 
 # ── API: report data (video_info + comments) ─────────────────────────────────
@@ -1093,11 +1109,18 @@ def _poll_all_batches_inner() -> None:
             folder = os.path.dirname(info_path)
             slug = _video_slug(info.get("title", "unknown"))
             parquet = _find_latest_parquet(folder, slug)
+            scored_saved = 0
             if parquet:
-                batch_scorer.fetch_and_apply_results(batch_id, comment_ids, parquet)
+                _scored, scored_saved = batch_scorer.fetch_and_apply_results(
+                    batch_id, comment_ids, parquet, saved_store=saved_store,
+                )
+                if scored_saved:
+                    logging.info("Batch %s: scored %d comments in Saved store", batch_id, scored_saved)
 
             # Check if any comments remain unscored after applying results
+            # Exclude comments that were moved to Saved (already scored above)
             unscored_df = None
+            saved_ids = {str(c.get("id", "")) for c in saved_store.all()} if saved_store else set()
             if parquet:
                 try:
                     df = pd.read_parquet(parquet)
@@ -1110,6 +1133,20 @@ def _poll_all_batches_inner() -> None:
                         unscored_df = None
                 except Exception:
                     unscored_df = None
+
+            # Count how many batch IDs are missing from both report and saved
+            if unscored_df is not None:
+                batch_id_set = set(comment_ids)
+                report_ids = set(df["id"].astype(str).tolist()) if parquet else set()
+                accounted_ids = report_ids | saved_ids
+                missing_from_all = batch_id_set - accounted_ids
+                # Only retry for comments still in the report parquet that are unscored
+                # (comments moved to saved/blacklist/deleted are not truly "unscored")
+                if len(missing_from_all) > 0:
+                    logging.info(
+                        "Batch %s: %d submitted comments no longer in report or saved (moved/deleted)",
+                        batch_id, len(missing_from_all),
+                    )
 
             retry_count = cb.get("retry_count", 0)
             stored_keywords = cb.get("keywords")

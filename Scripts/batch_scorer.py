@@ -153,21 +153,26 @@ def check_batch_status(batch_id: str) -> dict:
 
 
 def fetch_and_apply_results(
-    batch_id: str, comment_ids: list, parquet_path: str
-) -> int:
+    batch_id: str, comment_ids: list, parquet_path: str,
+    saved_store=None,
+) -> tuple:
     """Fetch results from an ended batch and write scores to the Parquet file.
 
     Maps each result back to its comment by ID (using the submission-order
     comment_ids list).  This is safe even if parquet rows were deleted between
     batch submission and now — only rows still present in the file are updated.
 
+    If saved_store is provided, comments that were moved to Saved between
+    batch submission and now will also receive their scores.
+
     Args:
         batch_id:     Anthropic batch ID.
         comment_ids:  Ordered list stored in _info.json at submission time.
         parquet_path: Path to the report's Parquet file (read → score → write).
+        saved_store:  Optional CommentStore for saved comments.
 
     Returns:
-        Number of comments successfully scored.
+        (scored_in_report, scored_in_saved) — counts of comments scored.
     """
     client = _get_client()
 
@@ -182,7 +187,17 @@ def fetch_and_apply_results(
     df["topic_confidence"] = pd.to_numeric(df["topic_confidence"], errors="coerce").fillna(-1).astype(int)
 
     id_to_idx = {cid: i for i, cid in enumerate(df["id"].astype(str).tolist())}
+
+    # Build a map of saved comment IDs for cross-store scoring
+    saved_map = {}
+    if saved_store:
+        for c in saved_store.all():
+            saved_map[str(c.get("id", ""))] = c
+
     scored = 0
+    scored_saved = 0
+    # Collect saved updates to apply in bulk after parsing
+    saved_updates = {}
 
     for result in client.messages.batches.results(batch_id):
         if result.result.type != "succeeded":
@@ -224,12 +239,31 @@ def fetch_and_apply_results(
                 continue
             cid = comment_ids[global_idx]
             row_idx = id_to_idx.get(cid)
-            if row_idx is None:
-                continue  # Row was deleted after submission
-
-            df.at[row_idx, "topic_rating"] = int(rating_obj.get("rating", -1))
-            df.at[row_idx, "topic_confidence"] = int(rating_obj.get("confidence", -1))
-            scored += 1
+            if row_idx is not None:
+                df.at[row_idx, "topic_rating"] = int(rating_obj.get("rating", -1))
+                df.at[row_idx, "topic_confidence"] = int(rating_obj.get("confidence", -1))
+                scored += 1
+            elif cid in saved_map:
+                saved_updates[cid] = (
+                    int(rating_obj.get("rating", -1)),
+                    int(rating_obj.get("confidence", -1)),
+                )
 
     df.to_parquet(parquet_path, index=False)
-    return scored
+
+    # Apply scores to saved comments
+    if saved_updates and saved_store:
+        with saved_store.lock:
+            data = saved_store._get_data()
+            changed = False
+            for c in data:
+                upd = saved_updates.get(str(c.get("id", "")))
+                if upd:
+                    c["topic_rating"] = upd[0]
+                    c["topic_confidence"] = upd[1]
+                    scored_saved += 1
+                    changed = True
+            if changed:
+                saved_store._save_and_cache(data)
+
+    return scored, scored_saved

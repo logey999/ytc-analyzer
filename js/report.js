@@ -64,11 +64,13 @@ async function loadReport() {
     });
     const res = await fetch('/api/report-data/' + REPORT_PATH + '?' + qp);
     if (!res.ok) {
+      if (res.status === 404) { window.location.href = '/'; return; }
       const err = await res.json().catch(() => ({}));
       showError(err.error || 'Failed to load report.');
       return;
     }
     const data = await res.json();
+    if (!data.comments || data.comments.length === 0) { window.location.href = '/'; return; }
     renderReport(data);
   } catch (e) {
     showError('Network error: ' + e.message);
