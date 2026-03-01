@@ -177,14 +177,14 @@ function renderReport({ video_info, comments, blacklist_count, saved_count, dele
         label: '+',
         title: 'Save',
         className: 'btn-save',
-        handler: async (comment, row) => {
+        handler: async (comment, row, tm) => {
           try {
             await fetch('/api/comment/save', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ comment: _withContext(comment) }),
             });
-            animateRowOut(row);
+            tm.removeRow(comment.id, row);
             _pendingCount = Math.max(0, _pendingCount - 1); _savedCount++;
             loadNavCounts(); refreshStripCounts();
           } catch (e) { console.error('Failed to save comment:', e); }
