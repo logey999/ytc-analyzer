@@ -197,6 +197,7 @@ async function _saveApiKeys() {
       if (ytInput) ytInput.value = '';
       if (anInput) anInput.value = '';
       await _loadApiKeys();
+      if (typeof _loadAnthropicKeyStatus === 'function') _loadAnthropicKeyStatus();
       if (statusEl) { statusEl.textContent = 'Saved.'; setTimeout(() => { statusEl.textContent = ''; }, 2500); }
     } else {
       if (statusEl) statusEl.textContent = data.error || 'Error saving.';

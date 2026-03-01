@@ -2,11 +2,14 @@
 
 // ── AI Scoring mode toggle ───────────────────────────────────────────────────
 
+let _hasAnthropicKey = false;
+
 function getAiMode() {
   return localStorage.getItem('aiScoringMode') || 'manual';
 }
 
 function setAiMode(mode) {
+  if (mode === 'auto' && !_hasAnthropicKey) return;
   if (mode === 'auto' && getAiMode() !== 'auto') {
     const container = document.getElementById('auto-ai-keywords');
     const kws = getAiKeywords();
@@ -31,8 +34,30 @@ function closeAutoAiModal(event) {
 
 function _renderAiModeButtons() {
   const mode = getAiMode();
-  document.getElementById('ai-mode-manual')?.classList.toggle('active', mode === 'manual');
-  document.getElementById('ai-mode-auto')?.classList.toggle('active', mode === 'auto');
+  const manualBtn = document.getElementById('ai-mode-manual');
+  const autoBtn = document.getElementById('ai-mode-auto');
+  if (manualBtn) manualBtn.classList.toggle('active', mode === 'manual');
+  if (autoBtn) {
+    const allowed = _hasAnthropicKey;
+    autoBtn.classList.toggle('active', allowed && mode === 'auto');
+    autoBtn.disabled = !allowed;
+    autoBtn.title = allowed ? '' : 'Anthropic API key required — configure in Settings';
+  }
+}
+
+async function _loadAnthropicKeyStatus() {
+  try {
+    const res = await fetch('/api/env-keys');
+    const data = await res.json();
+    _hasAnthropicKey = !!data.ANTHROPIC_API_KEY;
+  } catch (_) {
+    _hasAnthropicKey = false;
+  }
+  // If key was removed and auto mode was on, fall back to manual
+  if (!_hasAnthropicKey && getAiMode() === 'auto') {
+    localStorage.setItem('aiScoringMode', 'manual');
+  }
+  _renderAiModeButtons();
 }
 
 async function triggerAutoAiScore(reportPath) {
@@ -538,7 +563,7 @@ async function confirmDeleteReport(disposition) {
 
 document.addEventListener('DOMContentLoaded', () => {
   updateSortButtons();
-  _renderAiModeButtons();
+  _loadAnthropicKeyStatus();
   loadReports();
 });
 
